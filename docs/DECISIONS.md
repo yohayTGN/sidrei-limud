@@ -124,17 +124,25 @@ This also settled a genuine disagreement between sources: Tamid is 9 dapim
 
 ---
 
-## 9. Position is quantitative, and units are derived from it
+## 9. Position is quantitative, and units are derived from it — DECIDED, NOT YET IMPLEMENTED
 
-Position used to be free text ("דף י״ב ע״ב") alongside a separate numeric
-"units done" field. Both were entered by hand and could contradict each other,
-with the progress bar trusting one and the user trusting the other.
+Current state: `StudyLog` stores `reached` as free text ("דף י״ב ע״ב")
+alongside a separate numeric `units` field, hand-entered on the wrap-up
+form, and `Goals.G_POS` holds display text. Both are entered by hand and
+can contradict each other, with the progress bar trusting one and the
+user trusting the other.
 
-Position is now a number, and units learned are the difference between two
-positions. The summary form asks for position only.
+Decided design: position becomes a number, and units learned are computed
+as the difference between two positions — the `units` field is removed
+from the wrap-up form, since it becomes redundant with position rather
+than an independent input. The summary form is to ask for position only.
 
 Encoding: daf + 0.5 for amud bet, so `12.5` is דף י״ב ע״ב. This maps exactly onto
 Sefaria's amud index and makes a difference times two equal the amud count.
+For Rambam books, position uses the offset math in §10 — `positionToValue`
+/ `valueToPosition` already exist in `SefariaCatalog.gs` for exactly this,
+but nothing in `Code.gs` or the wrap-up form calls them yet (see
+`docs/ARCHITECTURE.md` §3).
 
 ---
 

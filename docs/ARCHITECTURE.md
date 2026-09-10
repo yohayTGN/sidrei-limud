@@ -72,11 +72,14 @@ One row per scheduled study block (`readPlanRows` / `readWeekPlan` /
 | 10 | `P_SEDER` | סדר | `boker` / `tzohorayim` / `erev` |
 
 Column 10 (`seder`) was added in v2.0. `saveWeekPlan(weekStart, blocks)`
-replaces a week atomically: it archives every existing row for that
-`weekStart` into `Archive` (`SHEET_ARCHIVE`, same columns as `WeeklyPlan`
-plus a "moved to archive" timestamp) and deletes the corresponding calendar
-events, before writing the new blocks — full validation of every incoming
-block runs *before* anything is deleted.
+replaces a week in three steps: it validates every incoming block first,
+then archives each existing row for that `weekStart` into `Archive`
+(`SHEET_ARCHIVE`, same columns as `WeeklyPlan` plus a "moved to archive"
+timestamp) and deletes its calendar event, then writes the new blocks.
+Validation before deletion means a malformed block fails loudly without
+data loss. It is not atomic — Sheets has no transactions, so a failure
+between the delete and the write leaves the week partially replaced,
+recoverable from `Archive`.
 
 ### StudyLog (`SHEET_LOG`)
 
@@ -186,9 +189,12 @@ or `cancelSession()` to discard. A session under 1 second total is
 discarded by `finishSession` itself rather than written.
 
 This is what makes the phone-starts / PC-finishes handoff work: the phone
-calls `pauseSession` (or just stops polling — `running` state is what's
-persisted, not a live connection), and the PC's next `getActiveSession()`
-call reads the same server-side segment history.
+calls `pauseSession` before switching devices, and the PC's next
+`getActiveSession()` call reads the same server-side segment history.
+If the phone instead just stops polling while `running` is still true,
+elapsed time keeps accruing from `segmentStart` — that's the intended
+"continue past planned time" behaviour, not a pause. Only `pauseSession`
+or `stopSession` ever commits the segment and freezes the clock.
 
 ---
 
@@ -208,21 +214,29 @@ distinction exists and what's excluded from the 83-count.
 Each section stores `offset`: the number of chapters in every section that
 precedes it within the same book, computed once in `SefariaCatalog.gs` by
 `assignOffsets_()` in Sefaria's own (canonical) node order, and persisted
-in `Catalog.C_OFFSET`. A position is stored as one running number —
-`positionToValue(book, sectionIdx, chapter) = section.offset + chapter` —
-so that a difference between two positions is a real chapter count even
-when it crosses a halachot boundary, and so `Goals.G_POS` / `StudyLog`
-never need to store a section separately from a chapter.
+in `Catalog.C_OFFSET`. Given a section and a chapter,
+`positionToValue(book, sectionIdx, chapter) = section.offset + chapter`
+collapses them to one running number, so that a difference between two
+such numbers is a real chapter count even when it crosses a halachot
+boundary. `valueToPosition(book, value)` is the inverse: it scans
+`book.sections` from the end for the last section whose `offset < value`,
+and returns `{ sectionIdx, section, chapter: value - section.offset }`.
+`formatPosition(book, value)` renders either direction's result for
+display — e.g. "הלכות תשובה פרק ג׳" — and also handles the other two
+position types in the same catalog: `posType: 'daf'` (Bavli, via
+`formatDafPosition`, daf + 0.5 for amud bet) and plain `number` (סימן, פרק
+with no sections).
 
-`valueToPosition(book, value)` is the inverse: it scans `book.sections`
-from the end for the last section whose `offset < value`, and returns
-`{ sectionIdx, section, chapter: value - section.offset }`.
-`formatPosition(book, value)` renders the result for display — e.g.
-"הלכות תשובה פרק ג׳" — and also handles the two other position types in
-the same catalog: `posType: 'daf'` (Bavli, via `formatDafPosition`, daf +
-0.5 for amud bet — DECISIONS.md #9) and plain `number` (סימן, פרק with no
-sections), so the session/summary UI can call one function regardless of
-which kind of book is active.
+**Not wired up yet.** These three functions exist only in
+`SefariaCatalog.gs` and are called from nowhere in the running app —
+only from `verifyCatalog()`'s own demo output and from
+`tests/catalog_test.js`. Today, `Goals.G_POS` and `StudyLog.L_REACHED`
+still store plain display text (e.g. "דף י״ב ע״ב"), and `L_UNITS` is
+still a separate hand-entered number on the wrap-up form — the offset
+math above is correct and ready, but nothing in `Code.gs` or
+`Index.html` calls it yet. Making position numeric and deriving units
+from it is a decided-but-not-implemented change; see `docs/DECISIONS.md`
+#9.
 
 Bavli daf ranges are derived the same way structurally but independently:
 `talmudRange()` scans Sefaria's `chapters` array for the first and last

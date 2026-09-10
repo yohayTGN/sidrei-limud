@@ -46,8 +46,10 @@ code, or ask, but do not edit a test's expected value to make it pass.
 Adjusting a test after a file move (e.g. its require path) is fine. See
 `docs/DECISIONS.md` #16.
 
-<!--
-TODO: the original rule list had a fifth item, "Every logic change …",
-that was cut off before it reached this file. Ask the project owner what
-that rule should say and fill it in here.
--->
+## Every logic change ships with a test
+
+If you change behaviour, add or update a test that would fail without the
+change. Adjusting a file path after files move is fine. Changing an
+expected value is not — if a test fails, the code is wrong, or ask me.
+See `docs/DECISIONS.md` #16: these tests caught four bugs that raised no
+error and would otherwise have shipped.
