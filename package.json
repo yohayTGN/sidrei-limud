@@ -1,0 +1,9 @@
+{
+  "name": "sidrei-limud",
+  "version": "2.3.0",
+  "private": true,
+  "description": "מנהל סדרי הלימוד — study session manager",
+  "scripts": {
+    "test": "node tests/test.js && node tests/ui_test.js && node tests/catalog_test.js && node tests/backup_test.js"
+  }
+}

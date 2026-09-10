@@ -1,0 +1,30 @@
+#!/bin/sh
+# Blocks a commit whose staged changes add a live Apps Script /exec URL
+# or a Google Sheets spreadsheet ID, regardless of which file they land in
+# — .gitignore only matches by filename, not content, so this covers the
+# case where a secret is pasted into an otherwise-tracked file.
+#
+# Enable once per clone with:
+#   git config core.hooksPath .githooks
+
+pattern='script\.google\.com/macros/s/[A-Za-z0-9_-]{20,}/exec|/spreadsheets/d/[A-Za-z0-9_-]{20,}'
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+found=0
+
+for f in $staged; do
+  case "$f" in
+    *.png|*.jpg|*.jpeg|*.gif|*.ico|*.pdf) continue ;;
+  esac
+  added=$(git diff --cached -- "$f" | grep -E '^\+' | grep -Ev '^\+\+\+')
+  if echo "$added" | grep -Eq "$pattern"; then
+    echo "pre-commit: possible secret (Apps Script /exec URL or spreadsheet ID) in $f"
+    found=1
+  fi
+done
+
+if [ "$found" -eq 1 ]; then
+  echo ""
+  echo "Commit blocked. Remove the live URL/ID, or move it to a file covered by .gitignore."
+  exit 1
+fi

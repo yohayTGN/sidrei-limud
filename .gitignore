@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+secrets.*.json
+*.secret
+
+# Apps Script / clasp local config — .clasp.json holds a live scriptId
+.clasp.json
+.clasprc.json
+
+# Local deployment config that tends to carry a live /exec URL or
+# spreadsheet ID (Worker proxy secrets, per-machine overrides)
+config.local.*
+*.local.json
+deploy-url.txt
+webapp-url.txt
+.dev.vars
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
