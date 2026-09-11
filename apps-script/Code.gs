@@ -570,6 +570,7 @@ function findRowById(sheet, idCol, id) {
 function readGoals() {
   const sheet = goalsSheet();
   const data = sheet.getDataRange().getValues();
+  const cats = getCatalog();   // פעם אחת, לא לכל שורה — ראה resolveCatalogBookFrom
   const out = [];
   for (let i = 1; i < data.length; i++) {
     const r = data[i];
@@ -577,6 +578,7 @@ function readGoals() {
     const total = toNum(r[G_TOTAL], 0);
     const done = toNum(r[G_DONE], 0);
     const categoryKey = String(r[G_CATEGORY] || 'custom');
+    const bookKey = String(r[G_BOOKKEY] || '');
     const cat = getCategory(categoryKey);
     out.push({
       name: String(r[G_NAME] || ''),
@@ -592,12 +594,15 @@ function readGoals() {
       category: categoryKey,
       categoryName: cat ? cat.name : 'מותאם אישית',
       categoryIcon: cat ? cat.icon : '✏️',
-      bookKey: String(r[G_BOOKKEY] || ''),
+      bookKey: bookKey,
       // total = 0 → ספר בלי יעד. נספרות יחידות מצטברות, אין פס התקדמות.
       hasTarget: total > 0,
       percent: total > 0 ? Math.min(100, round2((done / total) * 100)) : null,
       // מיקום מספרי — DECISIONS.md #9. null = עדיין לא נרשם מיקום מספרי.
-      posVal: numOrNull(r[G_POSVAL])
+      posVal: numOrNull(r[G_POSVAL]),
+      // רשומת הספר בקטלוג הפעיל, כולל חלקים/היסטים אם יש (רמב״ם) —
+      // כדי שטופס הסיכום ידע איזה תיבת קלט להציג בלי לפענח בעצמו slug↔שם.
+      posBook: resolveCatalogBookFrom(cats, categoryKey, bookKey)
     });
   }
   return out;
@@ -943,7 +948,11 @@ function sessionView(s) {
       unit: g.unit || 'יחידה',
       color: g.color || PALETTE[0],
       ms: totals[gid],
-      position: g.position || ''
+      position: g.position || '',
+      // לתיבת המיקום בטופס הסיכום — ראה renderWrapup ב-Index.html.
+      posVal: (g.posVal !== undefined && g.posVal !== null) ? g.posVal : null,
+      posBook: g.posBook || null,
+      category: g.category || 'custom'
     };
   }).sort(function (a, b) { return b.ms - a.ms; });
 

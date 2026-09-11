@@ -871,11 +871,81 @@ function renderStoppedHeader(){
     '</div>';
 }
 
+/* --- מיקום מספרי: מראה JS טהור של המתמטיקה ב-SefariaCatalog.gs, לתצוגה
+   חיה בלבד. Apps Script לא יכול לשתף קוד בין .gs ל-HTML — לתקן שם, לתקן
+   כאן. ראה positionToValue/valueToPosition/formatPosition/numToHebrew. */
+var POS_HEB_ONES = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+var POS_HEB_TENS = ['', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'];
+var POS_HEB_HUNDREDS = ['', 'ק', 'ר', 'ש', 'ת', 'תק', 'תר', 'תש', 'תת', 'תתק'];
+
+function numToHebrewJS(n){
+  n = Math.floor(Number(n));
+  if (!(n > 0) || n > 999) return String(n);
+  var out = POS_HEB_HUNDREDS[Math.floor(n / 100)];
+  var rem = n % 100;
+  if (rem === 15) out += 'טו';
+  else if (rem === 16) out += 'טז';
+  else out += POS_HEB_TENS[Math.floor(rem / 10)] + POS_HEB_ONES[rem % 10];
+  if (out.length === 1) return out + '׳';
+  return out.slice(0, -1) + '״' + out.slice(-1);
+}
+
+function formatDafJS(value){
+  var daf = Math.floor(value);
+  var isBet = Math.abs(value - daf - 0.5) < 0.01;
+  return 'דף ' + numToHebrewJS(daf) + ' ע' + (isBet ? '״ב' : '״א');
+}
+
+function valueToPositionJS(book, value){
+  value = Number(value) || 0;
+  if (!book || !book.sections || !book.sections.length) {
+    return { sectionIdx: -1, section: null, chapter: value };
+  }
+  for (var i = book.sections.length - 1; i >= 0; i--) {
+    var sec = book.sections[i];
+    if (value > sec.offset) return { sectionIdx: i, section: sec, chapter: value - sec.offset };
+  }
+  return { sectionIdx: 0, section: book.sections[0], chapter: value };
+}
+
+function positionToValueJS(book, sectionIdx, chapter){
+  if (!book || !book.sections || !book.sections.length) return Number(chapter) || 0;
+  var sec = book.sections[sectionIdx];
+  if (!sec) return Number(chapter) || 0;
+  return sec.offset + (Number(chapter) || 0);
+}
+
+function formatPositionJS(book, value){
+  if (value === null || value === undefined || value === '') return '';
+  if (!book) return String(value);
+  if (book.posType === 'daf') return formatDafJS(value);
+  if (book.sections && book.sections.length) {
+    var p = valueToPositionJS(book, value);
+    if (p.section) return p.section.name + ' פרק ' + numToHebrewJS(p.chapter);
+  }
+  return (book.unit || 'פרק') + ' ' + numToHebrewJS(value);
+}
+
+/** posType של הבלוק — מהקטלוג הפעיל אם נטען, אחרת בבלי=דף וכל השאר מספר. */
+function posTypeFor(b){
+  return (b.posBook && b.posBook.posType) || (b.category === 'bavli' ? 'daf' : 'number');
+}
+
+var POS_AMUD = {};   // goalId -> 'א' | 'ב', למצב הכפתור בתיבת הדף
+
 /* --- טופס סיכום --- */
 function renderWrapup(){
   var draft = SESSION.draft || {};
   var blocks = (SESSION.breakdown || []).map(function(b){
     var d = draft[b.goalId] || {};
+    var curVal = (d.posVal !== undefined && d.posVal !== null && d.posVal !== '') ? Number(d.posVal)
+               : (b.posVal !== undefined && b.posVal !== null ? Number(b.posVal) : null);
+    if (curVal !== null && posTypeFor(b) === 'daf') {
+      var daf0 = Math.floor(curVal);
+      POS_AMUD[b.goalId] = (Math.abs(curVal - daf0 - 0.5) < 0.01) ? 'ב' : 'א';
+    } else if (!POS_AMUD[b.goalId]) {
+      POS_AMUD[b.goalId] = 'א';
+    }
     return '' +
     '<div class="rounded-2xl bg-ink-700/60 border border-ink-600 p-4">' +
       '<div class="flex items-center justify-between mb-3">' +
@@ -884,20 +954,10 @@ function renderWrapup(){
           esc(b.goalName) + '</span>' +
         '<span class="text-xs text-cream-400 num">' + fmtMin(b.ms/60000) + '</span>' +
       '</div>' +
-      '<div class="grid grid-cols-3 gap-2 mb-3">' +
-        '<div class="col-span-2">' +
-          '<label class="block text-xs text-cream-400 mb-1">היכן הגעתי</label>' +
-          '<input data-wrap="reached" data-goal="' + esc(b.goalId) + '" value="' + esc(d.reached || b.position || '') + '" ' +
-            'placeholder="דף י״ב ע״ב" oninput="queueDraft()" ' +
-            'class="w-full px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm">' +
-        '</div>' +
-        '<div>' +
-          '<label class="block text-xs text-cream-400 mb-1">' + esc(b.unit) + '</label>' +
-          '<input data-wrap="units" data-goal="' + esc(b.goalId) + '" type="number" min="0" step="0.5" dir="ltr" ' +
-            'value="' + esc(d.units != null ? d.units : '') + '" placeholder="0" oninput="queueDraft()" ' +
-            'class="w-full px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm num">' +
-        '</div>' +
-      '</div>' +
+      '<label class="block text-xs text-cream-400 mb-1">היכן הגעתי</label>' +
+      renderPosInput(b, curVal) +
+      '<p id="posPreview-' + esc(b.goalId) + '" class="text-[11px] text-caramel-300 mt-1.5 mb-3">' +
+        esc(previewTextFor(b, curVal)) + '</p>' +
       '<label class="block text-xs text-cream-400 mb-1">סיכום</label>' +
       '<textarea data-wrap="summary" data-goal="' + esc(b.goalId) + '" rows="4" oninput="queueDraft()" ' +
         'placeholder="מה למדתי, קושיות שנשארו פתוחות, מה להמשיך בפעם הבאה…" ' +
@@ -919,15 +979,116 @@ function renderWrapup(){
     '<button onclick="doCancel()" class="w-full mt-3 text-[11px] text-cream-500">מחק את המפגש בלי לשמור</button>';
 }
 
-function collectWrapup(){
-  var map = {};
-  document.querySelectorAll('[data-wrap]').forEach(function(el){
-    var gid = el.getAttribute('data-goal');
-    var field = el.getAttribute('data-wrap');
-    if (!map[gid]) map[gid] = { goalId: gid };
-    map[gid][field] = field === 'units' ? (parseFloat(el.value) || 0) : el.value;
+/** תיבת המיקום, בצורה הנכונה לפי posType הספר: דף / פרק עם חלקים / מספר יחיד. */
+function renderPosInput(b, curVal){
+  var book = b.posBook || null;
+  var posType = posTypeFor(b);
+
+  if (posType === 'daf') {
+    var daf = curVal !== null ? Math.floor(curVal) : '';
+    var isBet = POS_AMUD[b.goalId] === 'ב';
+    return '' +
+      '<div class="flex gap-2">' +
+        '<input data-pos-daf="' + esc(b.goalId) + '" type="number" min="1" step="1" dir="ltr" ' +
+          'value="' + (daf === '' ? '' : daf) + '" placeholder="דף" oninput="updatePosPreview(\'' + esc(b.goalId) + '\')" ' +
+          'class="flex-1 px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm num">' +
+        '<div class="flex rounded-xl overflow-hidden border border-ink-600">' +
+          '<button type="button" data-pos-amud="' + esc(b.goalId) + '" data-val="א" ' +
+            'onclick="setAmud(\'' + esc(b.goalId) + '\',\'א\')" ' +
+            'class="px-3 py-2.5 text-sm ' + (!isBet ? 'bg-rose-400 text-ink-900' : 'bg-ink-800 text-cream-300') + '">א</button>' +
+          '<button type="button" data-pos-amud="' + esc(b.goalId) + '" data-val="ב" ' +
+            'onclick="setAmud(\'' + esc(b.goalId) + '\',\'ב\')" ' +
+            'class="px-3 py-2.5 text-sm ' + (isBet ? 'bg-rose-400 text-ink-900' : 'bg-ink-800 text-cream-300') + '">ב</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  if (posType === 'number' && book && book.sections && book.sections.length) {
+    var p = curVal !== null ? valueToPositionJS(book, curVal) : null;
+    var secIdx = p ? p.sectionIdx : 0;
+    var chapter = p ? p.chapter : '';
+    var opts = book.sections.map(function(s, i){
+      return '<option value="' + i + '"' + (i === secIdx ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    }).join('');
+    return '' +
+      '<div class="flex gap-2">' +
+        '<select data-pos-sec="' + esc(b.goalId) + '" oninput="updatePosPreview(\'' + esc(b.goalId) + '\')" ' +
+          'class="flex-1 px-2 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-xs">' + opts + '</select>' +
+        '<input data-pos-ch="' + esc(b.goalId) + '" type="number" min="1" step="1" dir="ltr" ' +
+          'value="' + (chapter === '' ? '' : chapter) + '" placeholder="' + esc(b.unit) + '" oninput="updatePosPreview(\'' + esc(b.goalId) + '\')" ' +
+          'class="w-20 px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm num">' +
+      '</div>';
+  }
+
+  return '<input data-pos-num="' + esc(b.goalId) + '" type="number" min="0" step="1" dir="ltr" ' +
+    'value="' + (curVal !== null ? curVal : '') + '" placeholder="' + esc(b.unit) + '" oninput="updatePosPreview(\'' + esc(b.goalId) + '\')" ' +
+    'class="w-full px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm num">';
+}
+
+function setAmud(goalId, val){
+  POS_AMUD[goalId] = val;
+  document.querySelectorAll('[data-pos-amud="' + goalId + '"]').forEach(function(btn){
+    var on = btn.getAttribute('data-val') === val;
+    btn.className = 'px-3 py-2.5 text-sm ' + (on ? 'bg-rose-400 text-ink-900' : 'bg-ink-800 text-cream-300');
   });
-  return Object.keys(map).map(function(k){ return map[k]; });
+  updatePosPreview(goalId);
+}
+
+/** קורא את תיבת המיקום הנוכחית ומחזיר ערך מספרי, או null אם לא הוזן/תקין. */
+function readPosVal(b){
+  var book = b.posBook || null;
+  var posType = posTypeFor(b);
+
+  if (posType === 'daf') {
+    var dafEl = document.querySelector('[data-pos-daf="' + b.goalId + '"]');
+    var daf = dafEl ? parseFloat(dafEl.value) : NaN;
+    if (isNaN(daf) || daf <= 0) return null;
+    return daf + (POS_AMUD[b.goalId] === 'ב' ? 0.5 : 0);
+  }
+  if (posType === 'number' && book && book.sections && book.sections.length) {
+    var secEl = document.querySelector('[data-pos-sec="' + b.goalId + '"]');
+    var chEl = document.querySelector('[data-pos-ch="' + b.goalId + '"]');
+    var secIdx = secEl ? parseInt(secEl.value, 10) : NaN;
+    var chapter = chEl ? parseFloat(chEl.value) : NaN;
+    if (isNaN(secIdx) || isNaN(chapter) || chapter <= 0) return null;
+    return positionToValueJS(book, secIdx, chapter);
+  }
+  var numEl = document.querySelector('[data-pos-num="' + b.goalId + '"]');
+  var num = numEl ? parseFloat(numEl.value) : NaN;
+  return isNaN(num) ? null : num;
+}
+
+function formatValFor(b, val){
+  if (val === null) return '—';
+  var book = b.posBook || null;
+  if (book) return formatPositionJS(book, val);
+  return posTypeFor(b) === 'daf' ? formatDafJS(val) : ((b.unit || 'פרק') + ' ' + numToHebrewJS(val));
+}
+
+function previewTextFor(b, curVal){
+  return formatValFor(b, curVal === undefined ? null : curVal);
+}
+
+function updatePosPreview(goalId){
+  var b = null;
+  (SESSION.breakdown || []).forEach(function(x){ if (x.goalId === goalId) b = x; });
+  if (!b) return;
+  var el = document.getElementById('posPreview-' + goalId);
+  if (el) el.textContent = formatValFor(b, readPosVal(b));
+  queueDraft();
+}
+
+function collectWrapup(){
+  return (SESSION.breakdown || []).map(function(b){
+    var val = readPosVal(b);
+    var summaryEl = document.querySelector('[data-wrap="summary"][data-goal="' + b.goalId + '"]');
+    return {
+      goalId: b.goalId,
+      posVal: val === null ? '' : val,
+      reached: val === null ? '' : formatValFor(b, val),
+      summary: summaryEl ? summaryEl.value : ''
+    };
+  });
 }
 
 function queueDraft(){
@@ -937,7 +1098,7 @@ function queueDraft(){
   DRAFT_TIMER = setTimeout(function(){
     var obj = {};
     collectWrapup().forEach(function(e){
-      obj[e.goalId] = { reached: e.reached, units: e.units, summary: e.summary };
+      obj[e.goalId] = { posVal: e.posVal, reached: e.reached, summary: e.summary };
     });
     google.script.run
       .withSuccessHandler(function(r){ if (st) st.textContent = 'טיוטה נשמרה ' + r.at; })
