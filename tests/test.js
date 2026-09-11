@@ -54,6 +54,28 @@ global.Date = class extends RealDate {
 function advance(min) { NOW = new RealDate(NOW.getTime() + min * 60000); }
 function resetClock(h, m) { NOW = new RealDate(2026, 8, 8, h === undefined ? 20 : h, m || 0, 0); }
 
+/* Row widths, checked against the real writers (not just the header
+   arrays) — placed before any test group below reassigns goalsSheet /
+   logSheet, so these exercise the actual eval'd appendLogEntry / saveGoal. */
+console.log('\n--- appended rows match declared header widths ---');
+let LOG_ROW = null;
+logSheet = () => ({ appendRow: r => { LOG_ROW = r; } });
+appendLogEntry({
+  date: '2026-09-09', startTime: '20:00', endTime: '21:00', actualMin: 60, plannedMin: 0,
+  goalId: 'g1', goalName: 'test', reached: '', units: 0, summary: '',
+  planId: 'p1', sessionId: 's1', seder: 'erev'
+});
+eq('appendLogEntry writes exactly HEADERS_LOG.length fields', LOG_ROW.length, HEADERS_LOG.length);
+
+let GOAL_ROW = null;
+goalsSheet = () => ({
+  getDataRange: () => ({ getValues: () => [[]] }),
+  appendRow: r => { GOAL_ROW = r; },
+  getRange: () => ({ getValues: () => [[]], setValues: () => {}, setValue: () => {} })
+});
+saveGoal({ category: 'bavli', bookKey: 'taanit' });
+eq('saveGoal writes exactly HEADERS_GOALS.length fields', GOAL_ROW.length, HEADERS_GOALS.length);
+
 /* ======================================================================== */
 console.log('\n--- catalog integrity ---');
 const bavli = getCategory('bavli');
@@ -263,7 +285,15 @@ eq('plan row width matches headers', planRowValues({
   goalId: 'd', goalName: 'e', id: 'f', seder: 'erev'
 }).length, HEADERS_PLAN.length);
 eq('archive row = plan row + 1', planRowValues({ seder: 'erev' }).length + 1, HEADERS_ARCHIVE.length);
-eq('log row width matches headers', HEADERS_LOG.length, 14);
+// V3 (numeric position, DECISIONS.md #9): appended after ID, same guarantee.
+// The literal below is 15, not 14 — this schema change is exactly why it
+// grew, per HEADERS_LOG.length itself (checked against the real writer above).
+eq('log row width matches headers', HEADERS_LOG.length, 15);
+eq('goal ID column still index 9 after V3 addition', G_ID, 9);
+eq('plan ID column still index 9 after V3 addition', P_ID, 9);
+eq('log ID column still index 12 after V3 addition', L_ID, 12);
+eq('V3 goal column appended after existing columns, not inserted', G_POSVAL, 12);
+eq('V3 log column appended after existing columns, not inserted', L_REACHEDVAL, 14);
 
 /* ====================== V2.1: target is optional ======================== */
 console.log('\n--- a book can exist with no target at all ---');

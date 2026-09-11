@@ -217,6 +217,44 @@ function formatPosition(book, value) {
   return (book.unit || 'פרק') + ' ' + numToHebrew(value);
 }
 
+/**
+ * טקסט חופשי → ערך מספרי. ההופכי (החלקי) של formatPosition — משמש רק
+ * במיגרציה של מיקומים שנרשמו לפני שהמיקום היה מספרי (DECISIONS.md #9).
+ * לא מנחש: כל מה שלא נפרש בבטחה מחזיר null.
+ *   "דף י״ב ע״ב"          -> 12.5
+ *   "דף י״ב ע״א" / "דף י״ב" -> 12
+ *   "פרק ג׳"              -> 3
+ *   "הלכות תשובה פרק ג׳"   -> היסט החלק + 3, דרך book.sections
+ */
+function parsePosition(book, text) {
+  const s = String(text || '').trim();
+  if (!s) return null;
+  const parts = s.split(/\s+/);
+
+  if (parts[0] === 'דף' && parts.length >= 2) {
+    const daf = hebrewToNum(parts[1]);
+    if (!daf) return null;
+    const amud = parts[2] ? parts[2].replace(/["'׳״]/g, '') : '';
+    return daf + (amud.slice(-1) === 'ב' ? 0.5 : 0);
+  }
+
+  const unitWord = (book && book.unit) || 'פרק';
+  let idx = parts.indexOf(unitWord);
+  if (idx === -1 && unitWord !== 'פרק') idx = parts.indexOf('פרק');
+  if (idx !== -1 && parts.length > idx + 1) {
+    const num = hebrewToNum(parts[idx + 1]);
+    if (!num) return null;
+    const sectionName = parts.slice(0, idx).join(' ').trim();
+    if (!sectionName) return num;
+    if (!book || !book.sections || !book.sections.length) return null;
+    const sec = book.sections.filter(function (x) { return x.name === sectionName; })[0];
+    if (!sec) return null;
+    return positionToValue(book, sec.idx, num);
+  }
+
+  return null;
+}
+
 
 /* ==========================================================================
    3. טווח דפים אמיתי מתוך מערך ה-chapters

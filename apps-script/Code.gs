@@ -52,10 +52,10 @@ const SHEET_ARCHIVE = 'Archive';
 /* --- Goals --- 0..9 זהים לגרסה 1; 10..11 חדשים ומתווספים בסוף */
 const G_NAME = 0, G_UNIT = 1, G_TOTAL = 2, G_STARTU = 3, G_DONE = 4,
       G_POS = 5, G_COLOR = 6, G_STATUS = 7, G_CREATED = 8, G_ID = 9,
-      G_CATEGORY = 10, G_BOOKKEY = 11;
+      G_CATEGORY = 10, G_BOOKKEY = 11, G_POSVAL = 12;
 const HEADERS_GOALS = ['שם היעד', 'יחידה', 'סה״כ יחידות', 'יחידת התחלה',
   'יחידות שהושלמו', 'מיקום נוכחי', 'צבע', 'סטטוס', 'נוצר בתאריך', 'מזהה',
-  'קטגוריה', 'מפתח בקטלוג'];
+  'קטגוריה', 'מפתח בקטלוג', 'מיקום (מספרי)'];
 
 /* --- WeeklyPlan --- 10 חדש */
 const P_WEEK = 0, P_DATE = 1, P_DOW = 2, P_START = 3, P_DUR = 4,
@@ -67,10 +67,11 @@ const HEADERS_PLAN = ['תחילת שבוע', 'תאריך', 'יום', 'שעת ה�
 /* --- StudyLog --- 13 חדש */
 const L_DATE = 0, L_START = 1, L_END = 2, L_ACTUAL = 3, L_PLANNED = 4,
       L_GOALID = 5, L_GOALNAME = 6, L_REACHED = 7, L_UNITS = 8,
-      L_SUMMARY = 9, L_PLANID = 10, L_SESSIONID = 11, L_ID = 12, L_SEDER = 13;
+      L_SUMMARY = 9, L_PLANID = 10, L_SESSIONID = 11, L_ID = 12, L_SEDER = 13,
+      L_REACHEDVAL = 14;
 const HEADERS_LOG = ['תאריך', 'שעת התחלה', 'שעת סיום', 'דקות בפועל',
   'דקות מתוכננות', 'מזהה יעד', 'שם היעד', 'היכן הגעתי', 'יחידות שהושלמו',
-  'סיכום', 'מזהה תכנון', 'מזהה מפגש', 'מזהה', 'סדר'];
+  'סיכום', 'מזהה תכנון', 'מזהה מפגש', 'מזהה', 'סדר', 'הגעתי (מספרי)'];
 
 const HEADERS_ARCHIVE = HEADERS_PLAN.concat(['הועבר לארכיון']);
 
@@ -281,6 +282,29 @@ function getCatalog() {
   return CATALOG;
 }
 
+/**
+ * מאתר את רשומת הספר המלאה (כולל חלקים/היסטים, אם יש) בקטלוג הפעיל.
+ * G_BOOKKEY הוא המפתח הקצר של הקטלוג המובנה (למשל 'mada'); כשהקטלוג טעון
+ * מהלשונית Catalog הספרים מפתחים בשם העברי המלא — ולכן קודם מאתרים את השם
+ * דרך הקטלוג המובנה, ואז מחפשים ספר באותו שם בקטלוג שכבר נטען (cats).
+ * מקבל cats מוכן כדי שקריאה לכל יעדי goal לא תטען את הקטלוג בכל פעם מחדש.
+ */
+function resolveCatalogBookFrom(cats, categoryKey, bookKey) {
+  const builtinBook = getCatalogBook(categoryKey, bookKey);
+  if (!builtinBook || !cats) return null;
+  for (let i = 0; i < cats.length; i++) {
+    if (cats[i].key !== categoryKey) continue;
+    for (let j = 0; j < cats[i].books.length; j++) {
+      if (cats[i].books[j].name === builtinBook.name) return cats[i].books[j];
+    }
+  }
+  return null;
+}
+
+function resolveCatalogBook(categoryKey, bookKey) {
+  return resolveCatalogBookFrom(getCatalog(), categoryKey, bookKey);
+}
+
 
 /* ==========================================================================
    4. גישה לגיליון + מיגרציה אוטומטית של כותרות
@@ -384,6 +408,73 @@ function migrateToV2() {
   return msg;
 }
 
+/**
+ * מיגרציה מגרסה 2 → 3: המרת מיקום טקסטואלי למספרי — DECISIONS.md #9.
+ * בטוחה להרצה חוזרת: ממלאת רק תאים ריקים ב-G_POSVAL/L_REACHEDVAL, ולעולם
+ * לא מנחשת — טקסט שלא נפרש נשאר ריק ומדווח בדוח כדי שיתמלא ביד.
+ * דורשת את parsePosition מ-SefariaCatalog.gs; אם הקובץ לא הותקן, מדווחת
+ * ולא נוגעת בשום דבר.
+ */
+function migrateToV3() {
+  if (typeof parsePosition !== 'function') {
+    const msg = 'SefariaCatalog.gs לא הותקן — parsePosition חסרה. לא בוצעה המרה.';
+    Logger.log(msg);
+    return msg;
+  }
+
+  const report = [];
+  const unparsed = [];
+  const cats = getCatalog();   // פעם אחת לכל המיגרציה
+
+  const gs = goalsSheet();
+  const gData = gs.getDataRange().getValues();
+  let gFixed = 0;
+  for (let i = 1; i < gData.length; i++) {
+    const row = gData[i];
+    if (!row[G_ID]) continue;
+    if (numOrNull(row[G_POSVAL]) !== null) continue;
+    const text = String(row[G_POS] || '').trim();
+    if (!text) continue;
+    const book = resolveCatalogBookFrom(cats, String(row[G_CATEGORY] || ''), String(row[G_BOOKKEY] || ''));
+    const val = parsePosition(book, text);
+    if (val === null) { unparsed.push('Goals · ' + row[G_NAME] + ': "' + text + '"'); continue; }
+    gs.getRange(i + 1, G_POSVAL + 1).setValue(val);
+    gFixed++;
+  }
+  report.push('Goals: הומרו ' + gFixed + ' מיקומים למספרי.');
+
+  const goalMeta = {};
+  readGoals().forEach(function (g) { goalMeta[g.id] = g; });
+
+  const ls = logSheet();
+  const lData = ls.getDataRange().getValues();
+  let lFixed = 0;
+  for (let i = 1; i < lData.length; i++) {
+    const row = lData[i];
+    if (!row[L_ID]) continue;
+    if (numOrNull(row[L_REACHEDVAL]) !== null) continue;
+    const text = String(row[L_REACHED] || '').trim();
+    if (!text) continue;
+    const g = goalMeta[String(row[L_GOALID] || '')];
+    const book = g ? resolveCatalogBookFrom(cats, g.category, g.bookKey) : null;
+    const val = parsePosition(book, text);
+    if (val === null) { unparsed.push('StudyLog · ' + row[L_GOALNAME] + ': "' + text + '"'); continue; }
+    ls.getRange(i + 1, L_REACHEDVAL + 1).setValue(val);
+    lFixed++;
+  }
+  report.push('StudyLog: הומרו ' + lFixed + ' מיקומים למספרי.');
+
+  if (unparsed.length) {
+    report.push('');
+    report.push('לא נפרש (' + unparsed.length + '), נשאר ריק בכוונה — מלא ביד:');
+    unparsed.forEach(function (u) { report.push('  · ' + u); });
+  }
+
+  const msg = report.join('\n');
+  Logger.log(msg);
+  return msg;
+}
+
 function debugSheets() {
   const ss = getSS();
   Logger.log('גיליון: ' + ss.getName());
@@ -406,6 +497,13 @@ function round2(n) { return Math.round(n * 100) / 100; }
 function toNum(v, fallback) {
   const n = parseFloat(v);
   return isNaN(n) ? (fallback || 0) : n;
+}
+
+/** כמו toNum, אבל ריק/NaN הם null ולא 0 — למספרי מיקום, שאין להם ברירת מחדל. */
+function numOrNull(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
 }
 
 function cellToDateStr(cell) {
@@ -497,7 +595,9 @@ function readGoals() {
       bookKey: String(r[G_BOOKKEY] || ''),
       // total = 0 → ספר בלי יעד. נספרות יחידות מצטברות, אין פס התקדמות.
       hasTarget: total > 0,
-      percent: total > 0 ? Math.min(100, round2((done / total) * 100)) : null
+      percent: total > 0 ? Math.min(100, round2((done / total) * 100)) : null,
+      // מיקום מספרי — DECISIONS.md #9. null = עדיין לא נרשם מיקום מספרי.
+      posVal: numOrNull(r[G_POSVAL])
     });
   }
   return out;
@@ -542,6 +642,8 @@ function saveGoal(data) {
     ? toNum(data.startUnit, 1)
     : (cat ? (cat.startUnit || 1) : 1);
 
+  const posValProvided = (data.posVal !== undefined && data.posVal !== null && data.posVal !== '');
+
   const sheet = goalsSheet();
   const row = [
     name, unit, total, startUnit,
@@ -550,7 +652,8 @@ function saveGoal(data) {
     String(data.color || PALETTE[0]),
     String(data.status || 'active'),
     todayStr(), '',
-    categoryKey, bookKey
+    categoryKey, bookKey,
+    posValProvided ? toNum(data.posVal, 0) : ''
   ];
 
   if (data.id) {
@@ -562,6 +665,7 @@ function saveGoal(data) {
     // אל תדרוס התקדמות שנצברה במפגשים אם הלקוח לא שלח אותה
     if (data.done === undefined || data.done === null || data.done === '') row[G_DONE] = toNum(existing[G_DONE], 0);
     if (data.position === undefined || data.position === null) row[G_POS] = existing[G_POS];
+    if (!posValProvided) row[G_POSVAL] = existing[G_POSVAL];
     sheet.getRange(rowNum, 1, 1, HEADERS_GOALS.length).setValues([row]);
     return { status: 'updated', id: data.id };
   }
@@ -707,7 +811,8 @@ function readLog() {
       sessionId: String(r[L_SESSIONID] || ''),
       id: String(r[L_ID] || ''),
       seder: sederKey,
-      sederIcon: getSeder(sederKey).icon
+      sederIcon: getSeder(sederKey).icon,
+      reachedVal: numOrNull(r[L_REACHEDVAL])
     });
   }
   return out;
@@ -715,11 +820,13 @@ function readLog() {
 
 function appendLogEntry(e) {
   const id = generateId();
+  const reachedValProvided = (e.reachedVal !== undefined && e.reachedVal !== null && e.reachedVal !== '');
   // כל העמודות תמיד — פער אחד מזיז כל שדה שאחריו
   logSheet().appendRow([
     e.date, e.startTime, e.endTime, e.actualMin, e.plannedMin,
     e.goalId, e.goalName, e.reached, e.units, e.summary,
-    e.planId || '--', e.sessionId, id, e.seder || 'erev'
+    e.planId || '--', e.sessionId, id, e.seder || 'erev',
+    reachedValProvided ? round2(toNum(e.reachedVal, 0)) : ''
   ]);
   return id;
 }
