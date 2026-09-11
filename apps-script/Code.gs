@@ -1077,6 +1077,20 @@ function saveDraft(draft) {
   return { status: 'saved', at: fmtTime(new Date()) };
 }
 
+/**
+ * הבסיס לחישוב יחידות בפעם הראשונה שנרשם מיקום מספרי לספר (אין עדיין
+ * posVal קודם). startUnit הוא היחידה הראשונה בספר עצמה (למשל דף 2 בבבלי) —
+ * לא המצב "לפני שהתחלת". הבסיס הנכון הוא צעד אחד לפניה, אחרת המפגש הראשון
+ * "מפסיד" יחידה אחת (0.5 דף / פרק שלם) בכל ספר, כל פעם.
+ *   posType 'daf'    -> startUnit - 0.5   (2 -> 1.5)
+ *   posType 'number' -> startUnit - 1     (1 -> 0)
+ */
+function positionBaselineFor(goal) {
+  const posType = (goal.posBook && goal.posBook.posType) || (goal.category === 'bavli' ? 'daf' : 'number');
+  const step = posType === 'daf' ? 0.5 : 1;
+  return toNum(goal.startUnit, 1) - step;
+}
+
 /** סיום: שורה ב-StudyLog לכל יעד שנלמד, קידום היעדים, סימון הבלוק, ניקוי. */
 function finishSession(entries) {
   const s = readSession();
@@ -1110,7 +1124,7 @@ function finishSession(entries) {
       const goal = getGoalById(b.goalId);
       const oldVal = (goal && goal.posVal !== null && goal.posVal !== undefined)
         ? goal.posVal
-        : (goal ? toNum(goal.startUnit, 0) : 0);
+        : (goal ? positionBaselineFor(goal) : 0);
       reachedVal = toNum(e.posVal, 0);
       const diff = round2(reachedVal - oldVal);
       units = diff > 0 ? diff : 0;

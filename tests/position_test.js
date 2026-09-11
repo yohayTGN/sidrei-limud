@@ -184,7 +184,11 @@ eq('units = 0 when the new position is behind the old one', ADVANCED2[0].u, 0);
 eq('the (lower) position itself is still recorded', ADVANCED2[0].pv, 35);
 eq('log row units are 0, not negative', WRITTEN[0].units, 0);
 
-console.log('\n--- a first-ever position uses the goal\'s startUnit as the baseline ---');
+console.log('\n--- a first-ever position uses ONE UNIT BEFORE startUnit as the baseline ---');
+// startUnit is the book's first real unit (e.g. daf 2), not "before you
+// started" — using it as-is as oldVal double-counts nothing but ALSO
+// silently drops the first unit ever learned. The baseline must be one
+// step before startUnit: startUnit - 1 for chapters, startUnit - 0.5 for daf.
 props = {};
 FAKE_GOALS = [{ id: 'g1', name: 'ספר המדע', unit: 'פרק', startUnit: 1,
   category: 'rambam', bookKey: 'mada', posVal: null }];
@@ -195,8 +199,37 @@ resetClock(20, 0);
 startSession({ goalId: 'g1' });
 advance(15);
 stopSession();
-finishSession([{ goalId: 'g1', posVal: 4, reached: 'הלכות יסודי התורה פרק ד׳' }]);
-eq('first entry: units = newVal - startUnit (4 - 1 = 3)', ADVANCED3[0].u, 3);
+// first session ends at chapter 3 -> chapters 1, 2, 3 were actually learned.
+finishSession([{ goalId: 'g1', posVal: 3, reached: 'הלכות יסודי התורה פרק ג׳' }]);
+eq('first session, chapters: units = what was actually learned (1,2,3 = 3)', ADVANCED3[0].u, 3);
+
+props = {};
+FAKE_GOALS = [{ id: 'g1', name: 'תענית', unit: 'דף', startUnit: 2,
+  category: 'bavli', bookKey: 'taanit', posVal: null }];
+let ADVANCED3b = [];
+advanceGoal = (id, u, p, pv) => { ADVANCED3b.push({ id, u, p, pv }); };
+appendLogEntry = e => 'log3b';
+resetClock(20, 0);
+startSession({ goalId: 'g1' });
+advance(15);
+stopSession();
+// first session ends at 12b -> 2a..12b were actually learned = 11 dapim.
+finishSession([{ goalId: 'g1', posVal: 12.5, reached: 'דף י״ב ע״ב' }]);
+eq('first session, daf: units = what was actually learned (2a..12b = 11)', ADVANCED3b[0].u, 11);
+
+console.log('\n--- a goal with an existing posVal is unaffected by the first-session baseline ---');
+props = {};
+FAKE_GOALS = [{ id: 'g1', name: 'ספר המדע', unit: 'פרק', startUnit: 1,
+  category: 'rambam', bookKey: 'mada', posVal: 12.5 }];
+let ADVANCED3c = [];
+advanceGoal = (id, u, p, pv) => { ADVANCED3c.push({ id, u, p, pv }); };
+appendLogEntry = e => 'log3c';
+resetClock(20, 0);
+startSession({ goalId: 'g1' });
+advance(15);
+stopSession();
+finishSession([{ goalId: 'g1', posVal: 20 }]);
+eq('a real prior posVal is used as-is, not the startUnit baseline (12.5 -> 20 = 7.5)', ADVANCED3c[0].u, 7.5);
 
 console.log('\n--- legacy callers with no posVal are unaffected (old wrap-up form) ---');
 props = {};
