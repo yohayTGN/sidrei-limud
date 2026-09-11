@@ -701,7 +701,7 @@ function setGoalTarget(goalId, total) {
   return { status: 'saved', total: t };
 }
 
-function advanceGoal(goalId, unitsDone, positionText) {
+function advanceGoal(goalId, unitsDone, positionText, posVal) {
   if (!goalId) return;
   const sheet = goalsSheet();
   const rowNum = findRowById(sheet, G_ID, goalId);
@@ -712,6 +712,11 @@ function advanceGoal(goalId, unitsDone, positionText) {
     sheet.getRange(rowNum, G_DONE + 1).setValue(round2(cur + units));
   }
   if (positionText) sheet.getRange(rowNum, G_POS + 1).setValue(positionText);
+  // posVal מגיע רק מהמסלול המספרי (DECISIONS.md #9); קריאות ישנות בלי הפרמטר
+  // הזה לא נוגעות ב-G_POSVAL בכלל.
+  if (posVal !== undefined && posVal !== null && posVal !== '') {
+    sheet.getRange(rowNum, G_POSVAL + 1).setValue(round2(toNum(posVal, 0)));
+  }
 }
 
 /* ---------- WeeklyPlan ---------- */
@@ -1085,7 +1090,26 @@ function finishSession(entries) {
   view.breakdown.forEach(function (b) {
     const e = byGoal[b.goalId] || {};
     const minutes = Math.round(b.ms / 60000);
-    if (minutes < 1 && !e.reached && !e.summary) return;
+    const hasPosVal = (e.posVal !== undefined && e.posVal !== null && e.posVal !== '');
+    if (minutes < 1 && !e.reached && !e.summary && !hasPosVal) return;
+
+    // יחידות נגזרות מהפרש המיקום, לא מוזנות בטופס — DECISIONS.md #9.
+    // בלי posVal (מסלול ישן / ספר בלי מיקום מספרי) — units כמו קודם.
+    // חזרה למיקום קודם או ירידה בו נותנת 0 יחידות, ולא מפחיתה מה-done.
+    let units, reachedVal;
+    if (hasPosVal) {
+      const goal = getGoalById(b.goalId);
+      const oldVal = (goal && goal.posVal !== null && goal.posVal !== undefined)
+        ? goal.posVal
+        : (goal ? toNum(goal.startUnit, 0) : 0);
+      reachedVal = toNum(e.posVal, 0);
+      const diff = round2(reachedVal - oldVal);
+      units = diff > 0 ? diff : 0;
+    } else {
+      units = Math.max(0, toNum(e.units, 0));
+      reachedVal = '';
+    }
+
     const id = appendLogEntry({
       date: dateStr,
       startTime: startStr,
@@ -1095,13 +1119,14 @@ function finishSession(entries) {
       goalId: b.goalId,
       goalName: b.goalName,
       reached: String(e.reached || ''),
-      units: Math.max(0, toNum(e.units, 0)),
+      reachedVal: reachedVal,
+      units: units,
       summary: String(e.summary || ''),
       planId: s.planId,
       sessionId: s.sessionId,
       seder: s.seder
     });
-    advanceGoal(b.goalId, e.units, e.reached);
+    advanceGoal(b.goalId, units, e.reached, hasPosVal ? reachedVal : undefined);
     written.push(id);
     first = false;
   });

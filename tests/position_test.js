@@ -40,6 +40,9 @@ eval(sefSrc.replace(/^const /gm, 'var '));
 const codeSrc = fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'Code.gs'), 'utf8');
 eval(codeSrc.replace(/^const /gm, 'var '));
 
+// שמור הפניה לפני שבדיקות מטה מחליפות את הבינדינג הגלובלי בסטאב.
+const REAL_advanceGoal = advanceGoal;
+
 let pass = 0, fail = 0;
 function eq(label, actual, expected) {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
@@ -123,6 +126,104 @@ const snapshotAfterFirstRun = JSON.stringify(GOAL_ROWS);
 const out2 = migrateToV3();
 eq('migrateToV3 run twice changes nothing the second time', JSON.stringify(GOAL_ROWS), snapshotAfterFirstRun);
 eq('second run converts zero new rows', out2.indexOf('הומרו 0 מיקומים') > -1, true);
+
+/* ---- finishSession: units derived from position, not entered ------------ */
+let NOW = new Date(2026, 8, 8, 20, 0, 0);
+const RealDate = Date;
+global.Date = class extends RealDate {
+  constructor(...a) { if (a.length === 0) super(NOW.getTime()); else super(...a); }
+  static now() { return NOW.getTime(); }
+};
+function advance(min) { NOW = new RealDate(NOW.getTime() + min * 60000); }
+function resetClock(h, m) { NOW = new RealDate(2026, 8, 8, h === undefined ? 20 : h, m || 0, 0); }
+
+console.log('\n--- units derived across a Rambam halachot boundary ---');
+props = {};
+let FAKE_GOALS = [{
+  id: 'g1', name: 'ספר המדע', unit: 'פרק', startUnit: 1,
+  category: 'rambam', bookKey: 'mada',
+  // 35 = offset(24) + 11 -> last chapter of "הלכות עבודה זרה וחוקות הגויים"
+  posVal: 35
+}];
+readGoals = () => FAKE_GOALS;
+getGoalById = id => FAKE_GOALS.find(g => g.id === id) || null;
+
+let WRITTEN = [], ADVANCED = [];
+appendLogEntry = e => { WRITTEN.push(e); return 'log1'; };
+advanceGoal = (id, u, p, pv) => { ADVANCED.push({ id, u, p, pv }); };
+updatePlanStatus = () => {};
+
+resetClock(20, 0);
+startSession({ goalId: 'g1' });
+advance(30);
+stopSession();
+// 39 = offset(36) + 3 -> "הלכות תשובה פרק ג׳", crossing into the next section
+finishSession([{ goalId: 'g1', posVal: 39, reached: 'הלכות תשובה פרק ג׳', summary: 'עברתי הלאה' }]);
+
+eq('units = 4 across the halachot boundary (35 -> 39)', ADVANCED[0].u, 4);
+eq('advanceGoal receives the new numeric position', ADVANCED[0].pv, 39);
+eq('log row carries the derived units, not an entered number', WRITTEN[0].units, 4);
+eq('log row carries the numeric reached value', WRITTEN[0].reachedVal, 39);
+eq('log row still carries the display text the client sent', WRITTEN[0].reached, 'הלכות תשובה פרק ג׳');
+
+console.log('\n--- units = 0 when position moves backwards (chazara) ---');
+props = {};
+FAKE_GOALS = [{ id: 'g1', name: 'ספר המדע', unit: 'פרק', startUnit: 1,
+  category: 'rambam', bookKey: 'mada', posVal: 39 }];
+let ADVANCED2 = [];
+advanceGoal = (id, u, p, pv) => { ADVANCED2.push({ id, u, p, pv }); };
+appendLogEntry = e => { WRITTEN = [e]; return 'log2'; };
+
+resetClock(20, 0);
+startSession({ goalId: 'g1' });
+advance(20);
+stopSession();
+finishSession([{ goalId: 'g1', posVal: 35, reached: 'הלכות עבודה זרה וחוקות הגויים פרק י״א' }]);
+
+eq('units = 0 when the new position is behind the old one', ADVANCED2[0].u, 0);
+eq('the (lower) position itself is still recorded', ADVANCED2[0].pv, 35);
+eq('log row units are 0, not negative', WRITTEN[0].units, 0);
+
+console.log('\n--- a first-ever position uses the goal\'s startUnit as the baseline ---');
+props = {};
+FAKE_GOALS = [{ id: 'g1', name: 'ספר המדע', unit: 'פרק', startUnit: 1,
+  category: 'rambam', bookKey: 'mada', posVal: null }];
+let ADVANCED3 = [];
+advanceGoal = (id, u, p, pv) => { ADVANCED3.push({ id, u, p, pv }); };
+appendLogEntry = e => 'log3';
+resetClock(20, 0);
+startSession({ goalId: 'g1' });
+advance(15);
+stopSession();
+finishSession([{ goalId: 'g1', posVal: 4, reached: 'הלכות יסודי התורה פרק ד׳' }]);
+eq('first entry: units = newVal - startUnit (4 - 1 = 3)', ADVANCED3[0].u, 3);
+
+console.log('\n--- legacy callers with no posVal are unaffected (old wrap-up form) ---');
+props = {};
+FAKE_GOALS = [{ id: 'g1', name: 'x', unit: 'דף', startUnit: 2, posVal: 12, category: 'bavli', bookKey: 'taanit' }];
+let ADVANCED4 = [];
+advanceGoal = (id, u, p, pv) => { ADVANCED4.push({ id, u, p, pv }); };
+appendLogEntry = e => { WRITTEN = [e]; return 'log4'; };
+resetClock(20, 0);
+startSession({ goalId: 'g1' });
+advance(10);
+stopSession();
+finishSession([{ goalId: 'g1', reached: 'דף י״ד', units: 2 }]);
+eq('no posVal sent -> units taken from the entry as before', ADVANCED4[0].u, 2);
+eq('no posVal sent -> advanceGoal is not given a 4th argument', ADVANCED4[0].pv, undefined);
+eq('the goal\'s numeric position is left untouched', WRITTEN[0].reachedVal, '');
+
+console.log('\n--- advanceGoal never touches G_DONE when units are 0 ---');
+let DONE_TOUCHED = false;
+goalsSheet = () => ({
+  getRange: (r, c) => ({
+    getValue: () => 10,
+    setValue: () => { if (c === G_DONE + 1) DONE_TOUCHED = true; }
+  })
+});
+findRowById = () => 2;
+REAL_advanceGoal('g1', 0, '', 39);
+eq('G_DONE cell is never written when units = 0', DONE_TOUCHED, false);
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
