@@ -243,3 +243,61 @@ Bavli daf ranges are derived the same way structurally but independently:
 non-zero entry rather than trusting `chapters.length`, because a tractate
 that doesn't start at daf 2 is zero-padded up to its real start
 (DECISIONS.md #8, the Tamid case).
+
+---
+
+## 4. The JSON API (`Api.gs`)
+
+Step 1 of the static-site migration (DECISIONS.md #15): a second entry
+point alongside `doGet`, so Apps Script can serve the eventual Worker
+proxy without touching the existing `HtmlService` app at all. `doGet`
+in `Code.gs` is untouched; `Index.html` still calls everything through
+`google.script.run`, unaffected by anything below.
+
+**Why POST, and why the client sends `text/plain`:** Apps Script has no
+CORS support — no `OPTIONS` handling, no way to set response headers on
+`TextOutput`. Only "simple" requests skip preflight: GET, or POST with
+`Content-Type: text/plain`. A POST declared as `application/json` would
+trigger a preflight that never gets answered. The JSON itself still
+travels as the request body either way — `doPost` parses
+`e.postData.contents` as a string regardless of the declared
+Content-Type — so declaring it `text/plain` costs nothing and avoids the
+CORS trap. This is a deliberate, permanent choice, not a workaround to
+"fix" later.
+
+**Request/response contract:** the body is JSON —
+`{ token, fn, args }`, `args` an array applied positionally to the
+target function (`fn.apply(null, args)`). The response is always
+`ContentService` JSON at HTTP 200 (Apps Script has no way to return a
+different status from a web app's `TextOutput`) — `doPost`'s entire body
+is one `try/catch`, so a thrown error becomes `{ ok: false, error }`
+instead of Apps Script's uncaught-exception HTML page. On success:
+`{ ok: true, data: <return value> }`.
+
+**Auth fails closed.** `checkApiToken_` reads the expected token from
+`PropertiesService.getScriptProperties().getProperty('apiToken')`. If
+it's unset, every call is rejected — there is no "no token configured
+means open" fallback. `setApiToken(token)` sets it; run it once from the
+editor, never commit the value. Neither the expected token nor the
+caller's wrong one is ever included in an error message.
+
+**The allowlist is a closed, explicit table, not a scope lookup.**
+`apiDispatchTable_()` returns an object literal naming exactly the
+functions callable through the API (`getBootstrap`, `saveGoal`,
+`finishSession`, … — the same set the client already reaches via
+`google.script.run`, minus nothing and plus nothing). `doPost` checks
+`fn` against this table with `hasOwnProperty` and rejects by name if it
+isn't there — it never does a generic global-scope lookup
+(`this[fn]`/`eval(fn)`), which would reach every function in the
+project, including maintenance operations that were never meant to be
+web-callable: `syncCatalog`, `installIcon`, `migrateToV2`,
+`migrateToV3`, `backupNow`.
+
+`apiDispatchTable_()` is a function, not a top-level `const`, so it
+builds the table fresh on every call rather than capturing references
+at file-load time — the same reason `getCatalog()` checks
+`typeof readCatalogSheet === 'function'` instead of referencing it
+directly: Apps Script's file-load order across `.gs` files isn't
+something to depend on for a cross-file reference evaluated at the top
+level. Inside a function body, called only once every file has loaded,
+it's safe.

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+- `Api.gs`: `doPost` — a JSON-RPC style entry point for the static-site
+  migration (DECISIONS.md #15), step 1 of 3 (Apps Script side only;
+  `Index.html` and the Worker proxy are untouched and still use `doGet`).
+  Token-gated (fails closed if `apiToken` is unset), dispatches only to an
+  explicit allowlist of 19 functions, and always returns HTTP 200 with
+  `{ ok, data }` / `{ ok, error }` — never an uncaught-exception HTML page.
+
 ## 2.3 — catalog synced from Sefaria
 - `SefariaCatalog.gs`: pulls Bavli (37), Mishnah (63), Rambam (14 sefarim /
   83 halachot), Tanakh (39), Halacha, Machshava into a `Catalog` sheet.
