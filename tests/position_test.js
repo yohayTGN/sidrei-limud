@@ -217,6 +217,24 @@ stopSession();
 finishSession([{ goalId: 'g1', posVal: 12.5, reached: 'דף י״ב ע״ב' }]);
 eq('first session, daf: units = what was actually learned (2a..12b = 11)', ADVANCED3b[0].u, 11);
 
+console.log('\n--- a custom goal with unit דף is still a daf baseline, not a chapter one ---');
+// category alone ('bavli') is not what makes something daf-shaped — a
+// custom goal (no posBook, category 'custom') tracked in דף must still get
+// the 0.5 step, or its first session under-counts by half a daf.
+props = {};
+FAKE_GOALS = [{ id: 'g1', name: 'עיון עצמאי בבבלי', unit: 'דף', startUnit: 2,
+  category: 'custom', bookKey: '', posVal: null }];
+let ADVANCED3d = [];
+advanceGoal = (id, u, p, pv) => { ADVANCED3d.push({ id, u, p, pv }); };
+appendLogEntry = e => 'log3d';
+resetClock(20, 0);
+startSession({ goalId: 'g1' });
+advance(15);
+stopSession();
+// first session ends at 12b -> same 2a..12b range as the bavli case = 11.
+finishSession([{ goalId: 'g1', posVal: 12.5, reached: 'דף י״ב ע״ב' }]);
+eq('custom + unit דף: baseline is still daf-shaped (2a..12b = 11, not 10.5)', ADVANCED3d[0].u, 11);
+
 console.log('\n--- a goal with an existing posVal is unaffected by the first-session baseline ---');
 props = {};
 FAKE_GOALS = [{ id: 'g1', name: 'ספר המדע', unit: 'פרק', startUnit: 1,

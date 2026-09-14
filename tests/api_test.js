@@ -47,6 +47,21 @@ global.ContentService = {
   }
 };
 
+/* Minimal chainable HtmlService stub, for the doGet legacy-UI guard. */
+function fakeHtmlOutput(tag, value) {
+  const out = { _tag: tag, _value: value };
+  out.setTitle = function () { return out; };
+  out.addMetaTag = function () { return out; };
+  out.setXFrameOptionsMode = function () { return out; };
+  out.setFaviconUrl = function () { return out; };
+  return out;
+}
+global.HtmlService = {
+  createHtmlOutput: (html) => fakeHtmlOutput('output', html),
+  createHtmlOutputFromFile: (file) => fakeHtmlOutput('file', file),
+  XFrameOptionsMode: { ALLOWALL: 'ALLOWALL' }
+};
+
 function loadGs(f) {
   return fs.readFileSync(path.join(__dirname, '..', 'apps-script', f), 'utf8').replace(/^const /gm, 'var ');
 }
@@ -107,6 +122,16 @@ res = callApi({ token: TOKEN, fn: 'readGoals', args: [] });
 eq('rejected by name', res.ok, false);
 eq('names the rejected function', res.error.indexOf('readGoals') > -1, true);
 
+console.log('\n--- Object.prototype names must be rejected, not resolved off the chain ---');
+// hasOwnProperty.call(table, fn) is what makes these safe. table[fn] alone
+// would resolve these to Object.prototype methods (or undefined, for
+// __proto__ depending on engine) instead of rejecting — locking this in so
+// a future "simplification" back to table[fn] fails loudly in tests first.
+['constructor', 'toString', '__proto__', 'hasOwnProperty', 'valueOf', 'isPrototypeOf'].forEach(function (name) {
+  const r = callApi({ token: TOKEN, fn: name, args: [] });
+  eq('"' + name + '" is rejected, not resolved via the prototype chain', r.ok, false);
+});
+
 console.log('\n--- maintenance/migration functions exist, but are specifically unreachable ---');
 eq('syncCatalog exists in this project', typeof syncCatalog, 'function');
 eq('syncCatalog is not reachable via the API', callApi({ token: TOKEN, fn: 'syncCatalog', args: [] }).ok, false);
@@ -154,6 +179,24 @@ res = JSON.parse(doPost({})._text);
 eq('missing postData entirely does not crash doPost', res.ok, false);
 res = JSON.parse(doPost(makeRawEvent('"just a string"'))._text);
 eq('valid JSON that is not an object is rejected', res.ok, false);
+
+console.log('\n--- doGet legacy-UI guard (uiEnabled) ---');
+// Default (property unset): serve the app exactly as before this change.
+props = {};
+let out = doGet();
+eq('unset uiEnabled -> serves Index.html, nothing changed today', out._tag, 'file');
+eq('unset uiEnabled -> the file is still Index', out._value, 'Index');
+
+disableLegacyUi();
+eq('disableLegacyUi sets uiEnabled to the string "false"', props.uiEnabled, 'false');
+out = doGet();
+eq('disabled -> does not touch Index.html at all', out._tag, 'output');
+eq('disabled -> returns some non-empty message, not the app', typeof out._value === 'string' && out._value.length > 0, true);
+
+enableLegacyUi();
+eq('enableLegacyUi clears the property (back to default)', 'uiEnabled' in props, false);
+out = doGet();
+eq('re-enabled -> serves Index.html again', out._tag, 'file');
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

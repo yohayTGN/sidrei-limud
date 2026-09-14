@@ -251,8 +251,22 @@ that doesn't start at daf 2 is zero-padded up to its real start
 Step 1 of the static-site migration (DECISIONS.md #15): a second entry
 point alongside `doGet`, so Apps Script can serve the eventual Worker
 proxy without touching the existing `HtmlService` app at all. `doGet`
-in `Code.gs` is untouched; `Index.html` still calls everything through
-`google.script.run`, unaffected by anything below.
+in `Code.gs` is functionally unchanged for now (a disabled-state guard
+was added around it — see "The `doGet` guard" below — but it's off by
+default); `Index.html` still calls everything through
+`google.script.run`, unaffected by anything else in this section.
+
+> **Deployment ordering, stated once here and in `README.md` so it's
+> hard to miss twice:** the deployment must stay **"Execute as: Me /
+> Only myself"** until `doGet` is disabled (`disableLegacyUi()`) or
+> removed. `doPost` is token-gated; `doGet` never needed to be, because
+> "Only myself" already closes it to everyone else. Switching the
+> deployment to **"Anyone"** — which the Worker needs, to call `doPost`
+> cross-origin — opens `doGet` to anyone with the URL at the same time,
+> and that legacy UI calls every function through `google.script.run`
+> with no token check at all. The token on `doPost` and "Only myself" on
+> the deployment are both load-bearing right now; only one of them is
+> visible in this file's diff.
 
 **Why POST, and why the client sends `text/plain`:** Apps Script has no
 CORS support — no `OPTIONS` handling, no way to set response headers on
@@ -301,3 +315,13 @@ directly: Apps Script's file-load order across `.gs` files isn't
 something to depend on for a cross-file reference evaluated at the top
 level. Inside a function body, called only once every file has loaded,
 it's safe.
+
+**The `doGet` guard.** `Code.gs`'s `doGet` checks
+`PropertiesService.getScriptProperties().getProperty('uiEnabled')`
+first. Unset (the default — true today, and for every deployment until
+someone runs the function below) means serve `Index.html` exactly as
+before. Set to the string `'false'` — only via `disableLegacyUi()`, run
+once from the editor — means return a bare `HtmlOutput` saying the app
+moved, instead. `enableLegacyUi()` clears the property to switch back.
+This is a safety net, not the primary control: the primary control is
+the deployment's execute-as setting, per the ordering constraint above.

@@ -1086,7 +1086,12 @@ function saveDraft(draft) {
  *   posType 'number' -> startUnit - 1     (1 -> 0)
  */
 function positionBaselineFor(goal) {
-  const posType = (goal.posBook && goal.posBook.posType) || (goal.category === 'bavli' ? 'daf' : 'number');
+  // עדיפות: posType מהספר שנפתר בקטלוג > יחידה "דף" (גם לספר מותאם אישית
+  // בלי רשומת קטלוג) > קטגוריה. category === 'bavli' לבדו לא מספיק — יעד
+  // מותאם אישית עם יחידה "דף" (בבלי שלא דרך הקטלוג, למשל) הוא גם דף.
+  const posType = (goal.posBook && goal.posBook.posType)
+    || (goal.unit === 'דף' ? 'daf' : null)
+    || (goal.category === 'bavli' ? 'daf' : 'number');
   const step = posType === 'daf' ? 0.5 : 1;
   return toNum(goal.startUnit, 1) - step;
 }
@@ -1852,7 +1857,36 @@ function removeIcon() {
    15. doGet
    ========================================================================== */
 
+const UI_ENABLED_PROP = 'uiEnabled';
+
+/**
+ * מכבה את ה-UI הישן: doGet יחזיר הודעה במקום את האפליקציה. הרץ פעם אחת
+ * מהעורך — ורק אחרי שהאתר הסטטי + ה-Worker מוכנים לגמרי, ראה
+ * README.md / ARCHITECTURE.md §4 לגבי סדר הצעדים. עד אז, אל תריץ את זה.
+ * ברירת המחדל (הפרופרטי לא קיים) היא UI פעיל — שום דבר לא משתנה מעצמו.
+ */
+function disableLegacyUi() {
+  PropertiesService.getScriptProperties().setProperty(UI_ENABLED_PROP, 'false');
+  return { status: 'disabled' };
+}
+
+/** מחזיר את ה-UI הישן לפעולה — למקרה שהמעבר צריך לחזור לאחור. */
+function enableLegacyUi() {
+  PropertiesService.getScriptProperties().deleteProperty(UI_ENABLED_PROP);
+  return { status: 'enabled' };
+}
+
 function doGet() {
+  // רשת ביטחון: אם הפריסה עברה ל-"Anyone" (כדי שה-Worker יוכל לקרוא ל-API),
+  // doGet לא יגיש עוד את ה-UI המלא — שממשיך לרוץ עם google.script.run בלי
+  // שום טוקן. הכיבוי הוא ידני ומפורש (disableLegacyUi), לא אוטומטי.
+  if (PropertiesService.getScriptProperties().getProperty(UI_ENABLED_PROP) === 'false') {
+    return HtmlService.createHtmlOutput(
+      '<body style="font-family:sans-serif;direction:rtl;text-align:center;margin-top:4em">' +
+      '<p>האפליקציה עברה למקום אחר.</p></body>'
+    );
+  }
+
   const out = HtmlService.createHtmlOutputFromFile('Index')
     .setTitle(APP_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
