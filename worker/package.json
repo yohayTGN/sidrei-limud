@@ -1,0 +1,6 @@
+{
+  "name": "sidrei-limud-worker",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker proxy in front of the Apps Script API — DECISIONS.md #15"
+}
