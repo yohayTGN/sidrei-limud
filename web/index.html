@@ -1,0 +1,1889 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#120E0C">
+
+<!-- Worker URL — configuration, not code. No secret lives here; the API
+     token is injected server-side by the Worker itself. Edit this per
+     deployment (see web/README.md). -->
+<meta name="api-base" content="https://sidrei-limud-api.YOUR-SUBDOMAIN.workers.dev">
+
+<!-- אייקון האפליקציה. מוגש כעמוד עצמאי (בלי iframe עוטף, בלי doGet) — לכן
+     התגיות האלה מספיקות בעצמן. אין כאן setFaviconUrl או installIcon: זה
+     תחליף קיים ב-Apps Script (apps-script/Index.html, apps-script/Code.gs)
+     כי דפדפנים קוראים manifest/apple-touch-icon רק מהמסמך העליון, ו-doGet
+     מגיש את הדף הזה בתוך iframe מקונן של Google. כאן זה המסמך העליון. -->
+<link rel="icon" type="image/png" href="icons/icon-512.png">
+<link rel="apple-touch-icon" href="icons/icon-512.png">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-title" content="סדרי לימוד">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<!-- רקע מיידי: מונע הבזק לבן לפני ש-Tailwind נטען -->
+<style>
+  html,body{background:#120E0C;color:#F5EAE5;margin:0;}
+  #boot-veil{position:fixed;inset:0;background:#120E0C;display:flex;align-items:center;
+    justify-content:center;z-index:99;transition:opacity .3s;}
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        /* מוקה כהה — רקעים ומשטחים */
+        ink:     { 950:'#120E0C', 900:'#1A1411', 850:'#1F1815', 800:'#241C18',
+                   700:'#2E2420', 600:'#3B2E28', 500:'#4C3B33' },
+        /* ורוד רך — הדגשה ראשית */
+        rose:    { 200:'#F8E6E7', 300:'#F3D5D7', 400:'#E9B8BC', 500:'#DCA0A5', 600:'#C4868C' },
+        /* קרמל/חום — הדגשה משנית */
+        caramel: { 300:'#D8B08C', 400:'#B98A63', 500:'#9A7050', 600:'#7A5740' },
+        /* טקסט — ערכים אלה עומדים ב-WCAG AA על כל משטחי הרקע */
+        cream:   { 100:'#F5EAE5', 200:'#E2D2CA', 300:'#C4AFA5', 400:'#AD9890', 500:'#A08C83' },
+        clay:    { 400:'#D9917E', 500:'#C57A66' }
+      },
+      fontFamily: { sans: ['Heebo','system-ui','-apple-system','Segoe UI','Arial','sans-serif'] },
+      borderRadius: { xl2: '1.25rem' }
+    }
+  }
+};
+</script>
+
+<style>
+  *{ -webkit-tap-highlight-color: transparent; }
+  body{ font-family:'Heebo',system-ui,sans-serif; padding-bottom:env(safe-area-inset-bottom); }
+  .num{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum"; }
+  input,select,textarea{ font-family:inherit; }
+  input:focus,select:focus,textarea:focus{ outline:none; }
+  select option, select optgroup{ background:#241C18; color:#F5EAE5; }
+  textarea{ resize:vertical; }
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  ::-webkit-scrollbar-thumb{ background:#3B2E28; border-radius:8px; }
+  .glow{ box-shadow:0 0 0 1px rgba(233,184,188,.12), 0 12px 40px -12px rgba(233,184,188,.22); }
+  .pulse-dot{ animation:pd 2s ease-in-out infinite; }
+  @keyframes pd{ 0%,100%{opacity:1} 50%{opacity:.35} }
+  .fade-in{ animation:fi .3s ease-out; }
+  @keyframes fi{ from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none} }
+  .tap:active:not(:disabled){ transform:scale(.975); }
+  button{ transition:transform .06s, filter .15s, background-color .15s; }
+  button:disabled{ opacity:.45; cursor:not-allowed; }
+  .hide{ display:none !important; }
+</style>
+<title>מנהל סדרי הלימוד</title>
+</head>
+
+<body class="bg-ink-950 text-cream-100 min-h-screen">
+
+<div id="boot-veil">
+  <div class="text-center">
+    <i class="fa-solid fa-book-open text-rose-400 text-3xl mb-3 pulse-dot"></i>
+    <p class="text-cream-400 text-sm">טוען את סדרי הלימוד…</p>
+  </div>
+</div>
+
+<div class="mx-auto w-full max-w-md md:max-w-5xl px-4 pt-5 pb-32">
+
+  <!-- ===================== כותרת ===================== -->
+  <header class="flex items-center justify-between mb-5">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-rose-400 to-caramel-400 flex items-center justify-center shadow-lg">
+        <i class="fa-solid fa-book-open text-ink-900 text-base"></i>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold leading-tight">סדרי הלימוד</h1>
+        <p id="hdrDate" class="text-xs text-cream-400 leading-tight">—</p>
+      </div>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="openSheet()" title="פתח את הגיליון"
+        class="tap w-10 h-10 rounded-xl bg-ink-800 border border-ink-600 text-cream-300">
+        <i class="fa-solid fa-table-list text-sm"></i>
+      </button>
+      <button onclick="showView('settings')" title="הגדרות"
+        class="tap w-10 h-10 rounded-xl bg-ink-800 border border-ink-600 text-cream-300">
+        <i class="fa-solid fa-gear text-sm"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===================== היום ===================== -->
+  <section id="view-today">
+    <div id="motzashBanner" class="hide mb-4"></div>
+    <div id="sessionCard" class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4 glow"></div>
+    <div id="wrapupCard" class="hide rounded-xl2 bg-ink-800 border border-rose-600/40 p-5 mb-4 fade-in"></div>
+
+    <div class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold flex items-center gap-2">
+          <i class="fa-regular fa-calendar-check text-caramel-400"></i> סדרי היום
+        </h2>
+        <button onclick="showView('plan')" class="text-xs text-rose-400 font-medium">ערוך שבוע</button>
+      </div>
+      <div id="todayPlanList" class="space-y-3"></div>
+    </div>
+
+    <div class="grid grid-cols-3 gap-2 mb-4">
+      <div class="rounded-2xl bg-ink-800 border border-ink-600 p-3 text-center">
+        <p id="qsWeek" class="text-xl font-bold num text-rose-400">0</p>
+        <p class="text-[11px] text-cream-400 mt-0.5">שעות השבוע</p>
+      </div>
+      <div class="rounded-2xl bg-ink-800 border border-ink-600 p-3 text-center">
+        <p id="qsTrend" class="text-xl font-bold num text-caramel-300">—</p>
+        <p class="text-[11px] text-cream-400 mt-0.5">מול שבוע שעבר</p>
+      </div>
+      <div class="rounded-2xl bg-ink-800 border border-ink-600 p-3 text-center">
+        <p id="qsStreak" class="text-xl font-bold num text-cream-100">0</p>
+        <p class="text-[11px] text-cream-400 mt-0.5">ימים ברצף</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== תכנון ===================== -->
+  <section id="view-plan" class="hide">
+
+    <!-- סיכום השבוע שהסתיים — מופיע במוצ״ש/ראשון -->
+    <div id="reviewCard" class="hide rounded-xl2 bg-gradient-to-br from-ink-800 to-ink-850 border border-caramel-600/40 p-5 mb-4"></div>
+
+    <!-- יעדים — הצבת מטרה, פעולה של מוצ״ש בלבד -->
+    <div id="targetsCard" class="hide rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4"></div>
+
+    <!-- ארון הספרים -->
+    <div class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold flex items-center gap-2">
+          <i class="fa-solid fa-book-bookmark text-rose-400"></i> ארון הספרים
+        </h2>
+        <button id="goalFormBtn" onclick="toggleGoalForm()"
+          class="text-xs text-rose-400 font-medium">+ הוסף ספר</button>
+      </div>
+      <div id="goalsList" class="space-y-2"></div>
+
+      <!-- טופס בחירה מהקטלוג -->
+      <div id="goalForm" class="hide mt-4 pt-4 border-t border-ink-600 space-y-3">
+        <input type="hidden" id="gfId">
+
+        <div>
+          <label class="block text-xs text-cream-400 mb-2">מאיפה?</label>
+          <div id="gfCategories" class="flex flex-wrap gap-2"></div>
+        </div>
+
+        <div id="gfBookWrap">
+          <label class="block text-xs text-cream-400 mb-1">איזה ספר / מסכת</label>
+          <select id="gfBook" onchange="onBookPicked()"
+            class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm"></select>
+          <p id="gfCatNote" class="text-[11px] text-cream-500 mt-1.5"></p>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div class="col-span-2">
+            <label class="block text-xs text-cream-400 mb-1">שם להצגה</label>
+            <input id="gfName" placeholder="נמלא אוטומטית"
+              class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs text-cream-400 mb-1">יחידה</label>
+            <input id="gfUnit" placeholder="דף"
+              class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="block text-xs text-cream-400 mb-1">יעד <span class="text-cream-500">(לא חובה)</span></label>
+            <input id="gfTotal" type="number" min="0" dir="ltr" placeholder="ללא יעד"
+              class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm num">
+          </div>
+          <div>
+            <label class="block text-xs text-cream-400 mb-1">כבר הושלמו</label>
+            <input id="gfDone" type="number" min="0" step="0.5" dir="ltr" placeholder="0"
+              class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm num">
+          </div>
+          <div>
+            <label class="block text-xs text-cream-400 mb-1">מתחיל ב־</label>
+            <input id="gfStartU" type="number" min="0" dir="ltr" placeholder="1"
+              class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm num">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-cream-400 mb-1">מיקום נוכחי</label>
+          <input id="gfPos" placeholder="דף י״ב ע״ב"
+            class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm">
+        </div>
+
+        <div>
+          <label class="block text-xs text-cream-400 mb-2">צבע</label>
+          <div id="gfColors" class="flex gap-2"></div>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button id="gfSave" onclick="saveGoalForm()"
+            class="tap flex-1 py-2.5 rounded-xl bg-rose-400 text-ink-900 text-sm font-bold">שמור</button>
+          <button onclick="toggleGoalForm(true)"
+            class="tap px-4 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm">ביטול</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- תכנון שבועי -->
+    <div class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4">
+      <div class="flex items-center justify-between mb-1">
+        <h2 class="text-sm font-semibold flex items-center gap-2">
+          <i class="fa-regular fa-calendar-days text-caramel-400"></i> תכנון שבועי
+        </h2>
+        <div class="flex gap-1 bg-ink-700 rounded-xl p-1">
+          <button id="tabThisWeek" onclick="selectWeek('this')"
+            class="px-3 py-1 rounded-lg text-xs font-medium">השבוע</button>
+          <button id="tabNextWeek" onclick="selectWeek('next')"
+            class="px-3 py-1 rounded-lg text-xs font-medium">הבא</button>
+        </div>
+      </div>
+      <p id="weekRangeLabel" class="text-xs text-cream-400 mb-3">—</p>
+      <p class="text-[11px] text-cream-500 mb-4">הוסף בלוק בלחיצה על סמל הסדר שליד כל יום.</p>
+
+      <div id="weekDays" class="space-y-2 md:grid md:grid-cols-2 md:gap-2 md:space-y-0"></div>
+
+      <div class="mt-4 pt-4 border-t border-ink-600">
+        <div id="planSederTotals" class="grid grid-cols-3 gap-2 mb-3"></div>
+        <div class="flex items-center justify-between text-xs text-cream-400 mb-3">
+          <span id="planTotals">—</span>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="chkCalendar" checked class="w-4 h-4 accent-rose-400 rounded">
+            <span>צור אירועי יומן</span>
+          </label>
+        </div>
+        <button id="savePlanBtn" onclick="savePlan()"
+          class="tap w-full py-3 rounded-xl bg-gradient-to-l from-rose-400 to-caramel-400 text-ink-900 text-sm font-bold">
+          <i class="fa-solid fa-cloud-arrow-up ml-1"></i> שמור תכנון וסנכרן ליומן
+        </button>
+        <p class="text-[11px] text-cream-500 mt-2 text-center leading-relaxed">
+          שמירה מחליפה את התכנון של השבוע הנבחר ומעדכנת את היומן בהתאם.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== התקדמות ===================== -->
+  <section id="view-stats" class="hide">
+
+    <div class="rounded-xl2 bg-gradient-to-br from-ink-800 to-ink-850 border border-ink-600 p-5 mb-4">
+      <h2 class="text-sm font-semibold mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-arrow-trend-up text-rose-400"></i> מגמה שבועית
+      </h2>
+      <div id="trendBox" class="text-center py-2"></div>
+      <div class="grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-ink-600 text-center">
+        <div>
+          <p id="stThisWeek" class="text-lg font-bold num text-rose-400">—</p>
+          <p class="text-[11px] text-cream-400">השבוע</p>
+        </div>
+        <div>
+          <p id="stLastWeek" class="text-lg font-bold num text-cream-300">—</p>
+          <p class="text-[11px] text-cream-400">שבוע שעבר</p>
+        </div>
+      </div>
+      <div id="adherenceBox" class="mt-4"></div>
+    </div>
+
+    <!-- פילוח לפי סדר -->
+    <div class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4">
+      <h2 class="text-sm font-semibold mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-layer-group text-caramel-400"></i> פילוח לפי סדר
+      </h2>
+      <div id="sederBreakdown" class="space-y-4"></div>
+    </div>
+
+    <div class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4">
+      <h2 class="text-sm font-semibold mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-chart-simple text-caramel-400"></i> פיזור השבוע
+      </h2>
+      <div id="dailyChart" class="flex items-end justify-between gap-1.5 h-28"></div>
+      <div id="dailyLabels" class="flex justify-between gap-1.5 mt-2"></div>
+    </div>
+
+    <div class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4">
+      <h2 class="text-sm font-semibold mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-bullseye text-rose-400"></i> התקדמות בספרים
+      </h2>
+      <div id="progressList" class="space-y-4"></div>
+    </div>
+
+    <div class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4">
+      <h2 class="text-sm font-semibold mb-4 flex items-center gap-2">
+        <i class="fa-regular fa-clock text-caramel-400"></i> מפגשים אחרונים
+      </h2>
+      <div id="recentList" class="space-y-2"></div>
+    </div>
+  </section>
+
+  <!-- ===================== הגדרות ===================== -->
+  <section id="view-settings" class="hide">
+    <div class="rounded-xl2 bg-ink-800 border border-ink-600 p-5 mb-4 space-y-3">
+      <h2 class="text-sm font-semibold mb-1 flex items-center gap-2">
+        <i class="fa-solid fa-gear text-rose-400"></i> הגדרות
+      </h2>
+      <div>
+        <label class="block text-xs text-cream-400 mb-1">כתובת האפליקציה (נכנסת לתיאור אירוע היומן)</label>
+        <input id="setUrl" dir="ltr" placeholder="https://script.google.com/…/exec"
+          class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-xs">
+        <p class="text-[11px] text-cream-500 mt-1">השאר ריק כדי לגזור אוטומטית מהפריסה הפעילה.</p>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs text-cream-400 mb-1">משך ברירת מחדל (דק׳)</label>
+          <input id="setDur" type="number" min="5" dir="ltr"
+            class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm num">
+        </div>
+        <div>
+          <label class="block text-xs text-cream-400 mb-1">תזכורת לפני (דק׳)</label>
+          <input id="setRemind" type="number" min="0" dir="ltr"
+            class="w-full px-3 py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm num">
+        </div>
+      </div>
+      <button id="setSaveBtn" onclick="saveSettingsForm()"
+        class="tap w-full py-2.5 rounded-xl bg-rose-400 text-ink-900 text-sm font-bold">שמור הגדרות</button>
+      <div class="pt-3 border-t border-ink-600 space-y-2">
+        <button onclick="openSheet()"
+          class="tap w-full py-2.5 rounded-xl bg-ink-700 border border-ink-600 text-sm">
+          <i class="fa-solid fa-table-list ml-1"></i> פתח את הגיליון
+        </button>
+        <p id="verLabel" class="text-[11px] text-cream-500 text-center"></p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ===================== ניווט ===================== -->
+<nav class="fixed bottom-0 inset-x-0 bg-ink-900/95 backdrop-blur border-t border-ink-600 z-40"
+     style="padding-bottom:env(safe-area-inset-bottom)">
+  <div class="mx-auto max-w-md md:max-w-5xl grid grid-cols-3">
+    <button onclick="showView('today')" data-nav="today" class="py-3 flex flex-col items-center gap-1">
+      <i class="fa-solid fa-stopwatch text-base"></i><span class="text-[11px] font-medium">היום</span>
+    </button>
+    <button onclick="showView('plan')" data-nav="plan" class="py-3 flex flex-col items-center gap-1">
+      <i class="fa-regular fa-calendar-days text-base"></i><span class="text-[11px] font-medium">תכנון</span>
+    </button>
+    <button onclick="showView('stats')" data-nav="stats" class="py-3 flex flex-col items-center gap-1">
+      <i class="fa-solid fa-chart-line text-base"></i><span class="text-[11px] font-medium">התקדמות</span>
+    </button>
+  </div>
+</nav>
+
+<div id="toastWrap" class="fixed bottom-24 inset-x-0 flex flex-col items-center gap-2 z-50 pointer-events-none px-4"></div>
+
+<script>
+/* ==========================================================================
+   מצב הלקוח
+   --------------------------------------------------------------------------
+   אין כאן localStorage — הוא חסום ב-iframe של Apps Script, וממילא לא היה
+   מסנכרן בין הטלפון למחשב. כל המצב יושב בשרת; כאן רק מטמון בזיכרון
+   ואינטרפולציה של השעון בין סנכרונים.
+   ========================================================================== */
+
+var BOOT = null;
+var SESSION = null;
+var SYNC_AT = 0;
+var TICKER = null;
+var POLLER = null;
+var VIEW = 'today';
+var SEL_WEEK = 'this';
+var PLAN_DRAFT = [];
+var DRAFT_TIMER = null;
+var GF_CAT = 'bavli';          // קטגוריה נבחרת בטופס הספרים
+var sheetUrl = '';
+
+/* ---------------- עזרים ---------------- */
+
+function $(id){ return document.getElementById(id); }
+
+function esc(v){
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function pad(n){ return String(n).padStart(2,'0'); }
+
+function fmtDuration(ms){
+  var t = Math.max(0, Math.floor(ms/1000));
+  var h = Math.floor(t/3600), m = Math.floor((t%3600)/60), s = t%60;
+  return h > 0 ? (h + ':' + pad(m) + ':' + pad(s)) : (pad(m) + ':' + pad(s));
+}
+
+function fmtMin(min){
+  min = Math.round(min || 0);
+  if (min < 60) return min + ' ד׳';
+  var h = Math.floor(min/60), m = min%60;
+  return m ? (h + 'ש׳ ' + m + 'ד׳') : (h + ' שעות');
+}
+
+function fmtHours(min){ return (Math.round((min||0)/6)/10).toFixed(1); }
+
+/** אותה נוסחה בדיוק כמו בשרת — לזיהוי אוטומטי של הסדר לפי שעה. */
+function sederFromTime(t){
+  var h = parseInt(String(t||'').split(':')[0], 10);
+  if (isNaN(h)) return 'erev';
+  if (h >= 4 && h < 12) return 'boker';
+  if (h >= 12 && h < 17) return 'tzohorayim';
+  return 'erev';
+}
+
+function seder(key){
+  var list = (BOOT && BOOT.seders) || [];
+  for (var i=0;i<list.length;i++) if (list[i].key === key) return list[i];
+  return list[2] || { key:'erev', name:'סדר ערב', icon:'🌙', color:'#E9B8BC', defaultStart:'20:30' };
+}
+
+function toast(msg, type){
+  var wrap = $('toastWrap');
+  var el = document.createElement('div');
+  var bg = type === 'error' ? 'bg-clay-500' : (type === 'success' ? 'bg-rose-400' : 'bg-ink-700');
+  var fg = type === 'success' ? 'text-ink-900' : 'text-cream-100';
+  el.className = 'px-4 py-3 rounded-xl text-sm font-medium shadow-2xl max-w-sm text-center ' +
+                 bg + ' ' + fg + ' opacity-0 translate-y-3 transition-all duration-300';
+  el.textContent = msg;
+  wrap.appendChild(el);
+  requestAnimationFrame(function(){ el.classList.remove('opacity-0','translate-y-3'); });
+  setTimeout(function(){
+    el.classList.add('opacity-0','translate-y-3');
+    setTimeout(function(){ el.remove(); }, 300);
+  }, type === 'error' ? 5000 : 3200);
+}
+
+/** כתובת ה-Worker — תצורה, לא קוד. נקראת מ-<meta name="api-base"> ב-<head>. */
+var API_BASE = (function(){
+  var m = document.querySelector('meta[name="api-base"]');
+  return (m && m.getAttribute('content')) || '';
+})();
+
+/**
+ * קריאת רשת בודדת ל-Worker. מחזירה Promise שמתממש עם data (הערך שהפונקציה
+ * בפועל החזירה ב-Apps Script) או נדחה עם Error — התאמה ל-{ok,data}/{ok,error}
+ * שה-Worker (ואחריו Api.gs) מחזירים תמיד ב-HTTP 200.
+ */
+function rpcFetch(fnName, args){
+  return fetch(API_BASE + '/api/' + fnName, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(args || [])
+  })
+    .then(function(res){
+      return res.json().catch(function(){ throw new Error('השרת לא הגיב.'); });
+    })
+    .then(function(body){
+      if (body && body.ok) return body.data;
+      throw new Error((body && body.error) || 'השרת לא הגיב.');
+    });
+}
+
+/** עטיפה אחידה: תמיד גם טיפול בשגיאה, תמיד משחררת את הכפתור. */
+function call(fnName, args, onOk, btn, busyLabel){
+  var original = null;
+  if (btn) {
+    original = btn.innerHTML;
+    btn.disabled = true;
+    if (busyLabel) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin ml-1"></i>' + busyLabel;
+  }
+  function release(){
+    if (btn) { btn.disabled = false; if (original !== null) btn.innerHTML = original; }
+  }
+  rpcFetch(fnName, args).then(function(res){
+    release();
+    try { onOk(res); } catch(e){ toast('שגיאת תצוגה: ' + e.message, 'error'); }
+  }, function(err){
+    release();
+    toast(err && err.message ? err.message : 'השרת לא הגיב.', 'error');
+  });
+}
+
+/* ---------------- ניווט ---------------- */
+
+function showView(name){
+  VIEW = name;
+  ['today','plan','stats','settings'].forEach(function(v){
+    var el = $('view-' + v);
+    if (el) el.classList.toggle('hide', v !== name);
+  });
+  document.querySelectorAll('[data-nav]').forEach(function(b){
+    var on = b.getAttribute('data-nav') === name;
+    b.className = 'py-3 flex flex-col items-center gap-1 ' + (on ? 'text-rose-400' : 'text-cream-500');
+  });
+  window.scrollTo(0,0);
+  if (name === 'plan') renderPlanEditor();
+  if (name === 'stats') renderStats();
+  if (name === 'settings') fillSettings();
+}
+
+/* ---------------- טעינה ---------------- */
+
+function boot(){
+  call('getBootstrap', [], function(data){
+    BOOT = data;
+    sheetUrl = data.sheetUrl || '';
+    SESSION = data.session;
+    SYNC_AT = Date.now();
+    $('hdrDate').textContent = 'יום ' + data.todayDayName + ' · ' + seder(data.currentSeder).name;
+    renderSession();
+    renderTodayPlan();
+    renderQuickStats();
+    renderMotzashBanner();
+    startPolling();
+    var veil = $('boot-veil');
+    veil.style.opacity = '0';
+    setTimeout(function(){ veil.remove(); }, 300);
+    showView('today');
+  });
+}
+
+function syncSession(silent){
+  call('getSyncState', [], function(st){
+    var wasPhase = SESSION ? SESSION.phase : 'none';
+    SESSION = st.session;
+    SYNC_AT = Date.now();
+    renderSession();
+    var nowPhase = SESSION ? SESSION.phase : 'none';
+    if (!silent && wasPhase !== nowPhase) renderTodayPlan();
+  });
+}
+
+function startPolling(){
+  if (POLLER) clearInterval(POLLER);
+  POLLER = setInterval(function(){ syncSession(true); }, 30000);
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden) syncSession(true);
+  });
+}
+
+function refreshData(){
+  call('getBootstrap', [], function(data){
+    BOOT = data; SESSION = data.session; SYNC_AT = Date.now();
+    renderSession(); renderTodayPlan(); renderQuickStats(); renderMotzashBanner();
+    if (VIEW === 'plan') renderPlanEditor();
+    if (VIEW === 'stats') renderStats();
+  });
+}
+
+/* ---------------- שעון מקומי ---------------- */
+
+function elapsedTotal(){
+  if (!SESSION) return 0;
+  return SESSION.totalMs + (SESSION.running ? (Date.now() - SYNC_AT) : 0);
+}
+
+function elapsedGoal(goalId){
+  if (!SESSION) return 0;
+  var base = SESSION.totals[goalId] || 0;
+  if (SESSION.running && SESSION.currentGoalId === goalId) base += (Date.now() - SYNC_AT);
+  return base;
+}
+
+function startTicker(){ stopTicker(); TICKER = setInterval(tick, 1000); tick(); }
+function stopTicker(){ if (TICKER) { clearInterval(TICKER); TICKER = null; } }
+
+function tick(){
+  var el = $('timerDisplay');
+  if (!el || !SESSION) { stopTicker(); return; }
+  var ms = elapsedTotal();
+  el.textContent = fmtDuration(ms);
+
+  if (SESSION.plannedMin > 0) {
+    var plannedMs = SESSION.plannedMin * 60000;
+    var bar = $('timerBar');
+    if (bar) bar.style.width = Math.min(100, (ms / plannedMs) * 100) + '%';
+    var over = $('overtimeBadge');
+    if (over) {
+      over.classList.toggle('hide', ms <= plannedMs);
+      if (ms > plannedMs) over.textContent = '+' + fmtMin((ms - plannedMs)/60000) + ' מעבר לתכנון';
+    }
+  }
+  if (SESSION.breakdown) {
+    SESSION.breakdown.forEach(function(b){
+      var c = $('bd-' + b.goalId);
+      if (c) c.textContent = fmtDuration(elapsedGoal(b.goalId));
+    });
+  }
+}
+
+/* ==========================================================================
+   כרטיס המפגש
+   ========================================================================== */
+
+function renderSession(){
+  var card = $('sessionCard');
+  var wrap = $('wrapupCard');
+
+  if (SESSION && SESSION.phase === 'wrapup') {
+    stopTicker();
+    card.innerHTML = renderStoppedHeader();
+    wrap.classList.remove('hide');
+    renderWrapup();
+    return;
+  }
+  wrap.classList.add('hide');
+  wrap.innerHTML = '';
+
+  if (SESSION && SESSION.phase === 'active') {
+    card.innerHTML = renderActive();
+    if (SESSION.running) startTicker(); else { stopTicker(); tick(); }
+    return;
+  }
+  stopTicker();
+  card.innerHTML = renderIdle();
+}
+
+function sederPill(key, extra){
+  var sd = seder(key);
+  return '<span class="' + (extra||'') + ' inline-flex items-center gap-1 px-2.5 py-1 rounded-full ' +
+    'text-[11px] font-semibold" style="background:' + sd.color + '22; color:' + sd.color + '">' +
+    sd.icon + ' ' + esc(sd.name) + '</span>';
+}
+
+/* --------------------------------------------------------------------------
+   מצב סרק — מונע מהלוח.
+   הנתיב היומי: הסדר כבר יודע מה אתה לומד, ולכן כאן יש כפתור אחד.
+   בחירת ספר והצבת יעד אינן חלק מהמסלול הזה — הן שייכות למוצ״ש.
+   -------------------------------------------------------------------------- */
+
+var FREE_OPEN = false;   // האם פאנל הלימוד החופשי פתוח
+
+function renderIdle(){
+  var goals = (BOOT && BOOT.goals || []).filter(function(g){ return g.status !== 'done'; });
+  var cur = BOOT && BOOT.current;
+
+  // אין בכלל ספרים — הפניה לתכנון, לא טופס יעד
+  if (!goals.length) {
+    return '<div class="text-center py-6">' +
+      '<i class="fa-regular fa-calendar-days text-caramel-400 text-2xl mb-3"></i>' +
+      '<p class="text-sm text-cream-300 mb-1">עוד לא תכננת סדרים</p>' +
+      '<p class="text-xs text-cream-500 mb-4">קובעים את הסדרים ואת הספרים פעם בשבוע, במוצ״ש.</p>' +
+      '<button onclick="showView(\'plan\')" class="tap px-5 py-2.5 rounded-xl bg-rose-400 text-ink-900 text-sm font-bold">תכנן את השבוע</button>' +
+      '</div>';
+  }
+
+  /* --- יש סדר עכשיו: כפתור אחד, בלי בחירות --- */
+  if (cur && cur.inWindow) {
+    return '' +
+      '<div class="flex items-center justify-between mb-3">' +
+        '<div class="flex items-center gap-2">' +
+          '<span class="w-2 h-2 rounded-full bg-rose-400 pulse-dot"></span>' +
+          '<span class="text-xs text-rose-400 font-semibold">הסדר שלך עכשיו</span></div>' +
+        sederPill(cur.block.seder) +
+      '</div>' +
+      '<h2 class="text-2xl font-bold mb-1">' + esc(cur.block.goalName) + '</h2>' +
+      '<p class="text-xs text-cream-400 mb-1">' + esc(cur.block.startTime) +
+        ' · ' + fmtMin(cur.block.durationMin) + ' מתוכננות</p>' +
+      lastPositionLine(cur.block.goalId) +
+      '<input type="hidden" id="startGoal" value="' + esc(cur.block.goalId) + '">' +
+      '<input type="hidden" id="startSeder" value="' + esc(cur.block.seder) + '">' +
+      '<input type="hidden" id="startPlanId" value="' + esc(cur.block.id) + '">' +
+      '<input type="hidden" id="startPlannedMin" value="' + cur.block.durationMin + '">' +
+      '<button id="startBtn" onclick="doStart(0)" ' +
+        'class="tap w-full py-4 mt-4 rounded-xl bg-gradient-to-l from-rose-400 to-caramel-400 text-ink-900 font-bold text-base">' +
+        '<i class="fa-solid fa-play ml-2"></i>התחל</button>' +
+      lateStartRow() +
+      freeStudyToggle(goals);
+  }
+
+  /* --- הסדר הבא היום --- */
+  if (cur && cur.startsInMin > 0) {
+    return '' +
+      '<div class="flex items-center justify-between mb-3">' +
+        '<span class="text-xs text-cream-400">הסדר הבא היום</span>' +
+        sederPill(cur.block.seder) +
+      '</div>' +
+      '<h2 class="text-2xl font-bold mb-1">' + esc(cur.block.goalName) + '</h2>' +
+      '<p class="text-xs text-caramel-300 mb-1">בעוד ' + fmtMin(cur.startsInMin) +
+        ' · בשעה ' + esc(cur.block.startTime) + '</p>' +
+      lastPositionLine(cur.block.goalId) +
+      '<input type="hidden" id="startGoal" value="' + esc(cur.block.goalId) + '">' +
+      '<input type="hidden" id="startSeder" value="' + esc(cur.block.seder) + '">' +
+      '<input type="hidden" id="startPlanId" value="' + esc(cur.block.id) + '">' +
+      '<input type="hidden" id="startPlannedMin" value="' + cur.block.durationMin + '">' +
+      '<button id="startBtn" onclick="doStart(0)" ' +
+        'class="tap w-full py-4 mt-4 rounded-xl bg-ink-700 border border-ink-600 text-cream-100 font-bold text-base">' +
+        '<i class="fa-solid fa-play ml-2"></i>התחל מוקדם</button>' +
+      freeStudyToggle(goals);
+  }
+
+  /* --- אין סדר מתוכנן כרגע --- */
+  var todayLeft = ((BOOT && BOOT.todayPlan) || []).filter(function(b){ return b.status !== 'done'; });
+  return '' +
+    '<div class="flex items-center justify-between mb-3">' +
+      '<span class="text-xs text-cream-400">' +
+        (todayLeft.length ? 'אין סדר פעיל כרגע' : 'סיימת את סדרי היום') + '</span>' +
+      sederPill(BOOT.currentSeder) +
+    '</div>' +
+    '<div class="text-center py-4">' +
+      '<i class="fa-regular fa-circle-check text-caramel-400 text-2xl mb-2"></i>' +
+      '<p class="text-sm text-cream-300">' +
+        (todayLeft.length ? 'הסדר הבא יופיע כאן כשיגיע זמנו.' : 'כל הכבוד. נתראה בסדר הבא.') +
+      '</p>' +
+    '</div>' +
+    freeStudyToggle(goals, true);
+}
+
+/** שורת "מיקום אחרון" — הדבר היחיד שבאמת עוזר לך בתחילת סדר. */
+function lastPositionLine(goalId){
+  var g = null;
+  (BOOT.goals || []).forEach(function(x){ if (x.id === goalId) g = x; });
+  if (!g || !g.position) return '';
+  return '<p class="text-xs text-caramel-300 mt-2">' +
+    '<i class="fa-solid fa-bookmark ml-1"></i>עצרת ב' + esc(g.position) + '</p>';
+}
+
+function lateStartRow(){
+  return '<div class="flex items-center gap-2 mt-3">' +
+    '<span class="text-[11px] text-cream-500 whitespace-nowrap">התחלתי כבר לפני</span>' +
+    [15,30,45].map(function(m){
+      return '<button onclick="doStart(' + m + ')" ' +
+        'class="tap flex-1 py-1.5 rounded-lg bg-ink-700 border border-ink-600 text-[11px] text-cream-300">' +
+        m + ' ד׳</button>';
+    }).join('') + '</div>';
+}
+
+/** לימוד חופשי — נתיב מילוט, לא ברירת המחדל. סגור עד שלוחצים. */
+function freeStudyToggle(goals, prominent){
+  if (!FREE_OPEN) {
+    return '<button onclick="toggleFree()" class="w-full mt-4 text-xs ' +
+      (prominent ? 'text-rose-400 font-medium' : 'text-cream-500') + '">' +
+      'לימוד חופשי (לא לפי הלוח)</button>';
+  }
+  var opts = goals.map(function(g){
+    return '<option value="' + esc(g.id) + '">' + esc(g.categoryIcon) + ' ' + esc(g.name) +
+      (g.position ? ' — ' + esc(g.position) : '') + '</option>';
+  }).join('');
+  var sederOpts = (BOOT.seders || []).map(function(s){
+    return '<option value="' + esc(s.key) + '"' + (s.key === BOOT.currentSeder ? ' selected' : '') + '>' +
+      s.icon + ' ' + esc(s.name) + '</option>';
+  }).join('');
+  return '<div class="mt-4 pt-4 border-t border-ink-600 fade-in">' +
+    '<div class="flex items-center justify-between mb-2">' +
+      '<span class="text-xs text-cream-400">לימוד חופשי</span>' +
+      '<button onclick="toggleFree()" class="text-[11px] text-cream-500">סגור</button>' +
+    '</div>' +
+    '<div class="grid grid-cols-3 gap-2 mb-3">' +
+      '<select id="startGoal" class="col-span-2 px-3 py-3 rounded-xl bg-ink-700 border border-ink-600 text-sm">' + opts + '</select>' +
+      '<select id="startSeder" class="px-2 py-3 rounded-xl bg-ink-700 border border-ink-600 text-sm">' + sederOpts + '</select>' +
+    '</div>' +
+    '<input type="hidden" id="startPlanId" value="">' +
+    '<input type="hidden" id="startPlannedMin" value="0">' +
+    '<button id="startBtn" onclick="doStart(0)" ' +
+      'class="tap w-full py-3 rounded-xl bg-rose-400 text-ink-900 font-bold text-sm">' +
+      '<i class="fa-solid fa-play ml-2"></i>התחל ללמוד</button>' +
+    lateStartRow() +
+    '</div>';
+}
+
+function toggleFree(){ FREE_OPEN = !FREE_OPEN; renderSession(); }
+
+/* --- מצב פעיל --- */
+function renderActive(){
+  var goals = (BOOT && BOOT.goals || []);
+  var curGoal = null;
+  goals.forEach(function(g){ if (g.id === SESSION.currentGoalId) curGoal = g; });
+
+  var chips = goals.filter(function(g){ return g.status !== 'done'; }).map(function(g){
+    var on = g.id === SESSION.currentGoalId;
+    return '<button onclick="doSwitch(\'' + esc(g.id) + '\')" ' +
+      'class="tap px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border ' +
+      (on ? 'bg-rose-400 text-ink-900 border-rose-400' : 'bg-ink-700 text-cream-300 border-ink-600') + '">' +
+      esc(g.categoryIcon) + ' ' + esc(g.name) + '</button>';
+  }).join('');
+
+  var sederBtns = (BOOT.seders || []).map(function(s){
+    var on = s.key === SESSION.seder;
+    return '<button onclick="doSetSeder(\'' + esc(s.key) + '\')" ' +
+      'class="tap flex-1 py-1.5 rounded-lg text-[11px] font-medium border ' +
+      (on ? 'border-transparent text-ink-900' : 'bg-ink-700 border-ink-600 text-cream-400') + '" ' +
+      (on ? 'style="background:' + s.color + '"' : '') + '>' + s.icon + ' ' + esc(s.name) + '</button>';
+  }).join('');
+
+  var breakdown = '';
+  if (SESSION.breakdown && SESSION.breakdown.length > 1) {
+    breakdown = '<div class="mt-4 pt-4 border-t border-ink-600 space-y-2">' +
+      SESSION.breakdown.map(function(b){
+        return '<div class="flex items-center justify-between text-xs">' +
+          '<span class="flex items-center gap-2">' +
+            '<span class="w-2 h-2 rounded-full" style="background:' + esc(b.color) + '"></span>' +
+            '<span class="text-cream-300">' + esc(b.goalName) + '</span></span>' +
+          '<span id="bd-' + esc(b.goalId) + '" class="num text-cream-100 font-medium">' +
+            fmtDuration(b.ms) + '</span></div>';
+      }).join('') + '</div>';
+  }
+
+  var plannedBar = '';
+  if (SESSION.plannedMin > 0) {
+    plannedBar =
+      '<div class="mt-4">' +
+        '<div class="h-1.5 rounded-full bg-ink-700 overflow-hidden">' +
+          '<div id="timerBar" class="h-full bg-gradient-to-l from-rose-400 to-caramel-400 transition-all duration-1000" style="width:0%"></div>' +
+        '</div>' +
+        '<div class="flex justify-between items-center mt-2">' +
+          '<span class="text-[11px] text-cream-500">מתוך ' + fmtMin(SESSION.plannedMin) + ' מתוכננות</span>' +
+          '<span id="overtimeBadge" class="hide text-[11px] text-caramel-300 font-semibold"></span>' +
+        '</div>' +
+      '</div>';
+  }
+
+  return '' +
+    '<div class="flex items-center justify-between mb-4">' +
+      '<div class="flex items-center gap-2">' +
+        '<span class="w-2 h-2 rounded-full ' + (SESSION.running ? 'bg-rose-400 pulse-dot' : 'bg-cream-500') + '"></span>' +
+        '<span class="text-xs font-semibold ' + (SESSION.running ? 'text-rose-400' : 'text-cream-400') + '">' +
+          (SESSION.running ? 'לומד עכשיו' : 'בהפסקה') + '</span>' +
+      '</div>' +
+      sederPill(SESSION.seder) +
+    '</div>' +
+
+    '<div class="text-center py-2">' +
+      '<p id="timerDisplay" class="text-5xl font-bold num tracking-tight ' +
+        (SESSION.running ? 'text-cream-100' : 'text-cream-400') + '">' + fmtDuration(SESSION.totalMs) + '</p>' +
+      '<p class="text-sm text-caramel-300 mt-2 font-medium">' + esc(curGoal ? curGoal.name : 'לימוד') + '</p>' +
+      '<p class="text-[11px] text-cream-500 mt-1">התחלה ' + esc(SESSION.startTimeStr) + '</p>' +
+    '</div>' +
+
+    plannedBar +
+
+    '<div class="flex gap-2 mt-5">' +
+      '<button id="pauseBtn" onclick="doPause()" class="tap flex-1 py-3 rounded-xl bg-ink-700 border border-ink-600 text-sm font-semibold">' +
+        (SESSION.running ? '<i class="fa-solid fa-pause ml-1"></i>הפסקה' : '<i class="fa-solid fa-play ml-1"></i>המשך') +
+      '</button>' +
+      '<button id="stopBtn" onclick="doStop()" class="tap flex-1 py-3 rounded-xl bg-rose-400 text-ink-900 text-sm font-bold">' +
+        '<i class="fa-solid fa-flag-checkered ml-1"></i>סיים וסכם</button>' +
+    '</div>' +
+
+    '<div class="mt-4">' +
+      '<p class="text-[11px] text-cream-500 mb-2">החלף ספר תוך כדי</p>' +
+      '<div class="flex gap-2 overflow-x-auto pb-1">' + chips + '</div>' +
+    '</div>' +
+
+    '<div class="mt-3">' +
+      '<p class="text-[11px] text-cream-500 mb-2">שייך לסדר</p>' +
+      '<div class="flex gap-2">' + sederBtns + '</div>' +
+    '</div>' +
+
+    breakdown +
+
+    '<button onclick="doCancel()" class="w-full mt-4 text-[11px] text-cream-500">בטל מפגש בלי לשמור</button>';
+}
+
+function renderStoppedHeader(){
+  return '<div class="text-center py-2">' +
+    '<i class="fa-solid fa-circle-check text-rose-400 text-2xl mb-2"></i>' +
+    '<p class="text-3xl font-bold num">' + fmtDuration(SESSION.totalMs) + '</p>' +
+    '<div class="flex items-center justify-center gap-2 mt-2">' + sederPill(SESSION.seder) + '</div>' +
+    '<p class="text-xs text-cream-400 mt-2">' + esc(SESSION.startTimeStr) + ' · המפגש הסתיים</p>' +
+    '<p class="text-[11px] text-caramel-300 mt-2">אפשר לסכם מכל מכשיר — המצב שמור בשרת.</p>' +
+    '</div>';
+}
+
+/* --- מיקום מספרי: מראה JS טהור של המתמטיקה ב-SefariaCatalog.gs, לתצוגה
+   חיה בלבד. Apps Script לא יכול לשתף קוד בין .gs ל-HTML — לתקן שם, לתקן
+   כאן. ראה positionToValue/valueToPosition/formatPosition/numToHebrew. */
+var POS_HEB_ONES = ['', 'א', 'ב', 'ג', 'ד', 'ה', 'ו', 'ז', 'ח', 'ט'];
+var POS_HEB_TENS = ['', 'י', 'כ', 'ל', 'מ', 'נ', 'ס', 'ע', 'פ', 'צ'];
+var POS_HEB_HUNDREDS = ['', 'ק', 'ר', 'ש', 'ת', 'תק', 'תר', 'תש', 'תת', 'תתק'];
+
+function numToHebrewJS(n){
+  n = Math.floor(Number(n));
+  if (!(n > 0) || n > 999) return String(n);
+  var out = POS_HEB_HUNDREDS[Math.floor(n / 100)];
+  var rem = n % 100;
+  if (rem === 15) out += 'טו';
+  else if (rem === 16) out += 'טז';
+  else out += POS_HEB_TENS[Math.floor(rem / 10)] + POS_HEB_ONES[rem % 10];
+  if (out.length === 1) return out + '׳';
+  return out.slice(0, -1) + '״' + out.slice(-1);
+}
+
+function formatDafJS(value){
+  var daf = Math.floor(value);
+  var isBet = Math.abs(value - daf - 0.5) < 0.01;
+  return 'דף ' + numToHebrewJS(daf) + ' ע' + (isBet ? '״ב' : '״א');
+}
+
+function valueToPositionJS(book, value){
+  value = Number(value) || 0;
+  if (!book || !book.sections || !book.sections.length) {
+    return { sectionIdx: -1, section: null, chapter: value };
+  }
+  for (var i = book.sections.length - 1; i >= 0; i--) {
+    var sec = book.sections[i];
+    if (value > sec.offset) return { sectionIdx: i, section: sec, chapter: value - sec.offset };
+  }
+  return { sectionIdx: 0, section: book.sections[0], chapter: value };
+}
+
+function positionToValueJS(book, sectionIdx, chapter){
+  if (!book || !book.sections || !book.sections.length) return Number(chapter) || 0;
+  var sec = book.sections[sectionIdx];
+  if (!sec) return Number(chapter) || 0;
+  return sec.offset + (Number(chapter) || 0);
+}
+
+function formatPositionJS(book, value){
+  if (value === null || value === undefined || value === '') return '';
+  if (!book) return String(value);
+  if (book.posType === 'daf') return formatDafJS(value);
+  if (book.sections && book.sections.length) {
+    var p = valueToPositionJS(book, value);
+    if (p.section) return p.section.name + ' פרק ' + numToHebrewJS(p.chapter);
+  }
+  return (book.unit || 'פרק') + ' ' + numToHebrewJS(value);
+}
+
+/** posType של הבלוק — מהקטלוג הפעיל אם נטען, אחרת בבלי=דף וכל השאר מספר. */
+function posTypeFor(b){
+  return (b.posBook && b.posBook.posType) || (b.category === 'bavli' ? 'daf' : 'number');
+}
+
+var POS_AMUD = {};   // goalId -> 'א' | 'ב', למצב הכפתור בתיבת הדף
+
+/* --- טופס סיכום --- */
+function renderWrapup(){
+  var draft = SESSION.draft || {};
+  var blocks = (SESSION.breakdown || []).map(function(b){
+    var d = draft[b.goalId] || {};
+    var curVal = (d.posVal !== undefined && d.posVal !== null && d.posVal !== '') ? Number(d.posVal)
+               : (b.posVal !== undefined && b.posVal !== null ? Number(b.posVal) : null);
+    if (curVal !== null && posTypeFor(b) === 'daf') {
+      var daf0 = Math.floor(curVal);
+      POS_AMUD[b.goalId] = (Math.abs(curVal - daf0 - 0.5) < 0.01) ? 'ב' : 'א';
+    } else if (!POS_AMUD[b.goalId]) {
+      POS_AMUD[b.goalId] = 'א';
+    }
+    return '' +
+    '<div class="rounded-2xl bg-ink-700/60 border border-ink-600 p-4">' +
+      '<div class="flex items-center justify-between mb-3">' +
+        '<span class="flex items-center gap-2 text-sm font-semibold">' +
+          '<span class="w-2.5 h-2.5 rounded-full" style="background:' + esc(b.color) + '"></span>' +
+          esc(b.goalName) + '</span>' +
+        '<span class="text-xs text-cream-400 num">' + fmtMin(b.ms/60000) + '</span>' +
+      '</div>' +
+      '<label class="block text-xs text-cream-400 mb-1">היכן הגעתי</label>' +
+      renderPosInput(b, curVal) +
+      '<p id="posPreview-' + esc(b.goalId) + '" class="text-[11px] text-caramel-300 mt-1.5 mb-3">' +
+        esc(previewTextFor(b, curVal)) + '</p>' +
+      '<label class="block text-xs text-cream-400 mb-1">סיכום</label>' +
+      '<textarea data-wrap="summary" data-goal="' + esc(b.goalId) + '" rows="4" oninput="queueDraft()" ' +
+        'placeholder="מה למדתי, קושיות שנשארו פתוחות, מה להמשיך בפעם הבאה…" ' +
+        'class="w-full px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm leading-relaxed md:min-h-[140px]">' +
+        esc(d.summary || '') + '</textarea>' +
+    '</div>';
+  }).join('');
+
+  $('wrapupCard').innerHTML =
+    '<div class="flex items-center justify-between mb-4">' +
+      '<h2 class="text-sm font-semibold flex items-center gap-2">' +
+        '<i class="fa-solid fa-pen-to-square text-rose-400"></i> סיכום המפגש</h2>' +
+      '<span id="draftStatus" class="text-[11px] text-cream-500"></span>' +
+    '</div>' +
+    '<div class="space-y-3 md:grid md:grid-cols-2 md:gap-3 md:space-y-0">' + blocks + '</div>' +
+    '<button id="finishBtn" onclick="doFinish()" ' +
+      'class="tap w-full mt-4 py-3.5 rounded-xl bg-gradient-to-l from-rose-400 to-caramel-400 text-ink-900 font-bold text-sm">' +
+      '<i class="fa-solid fa-check ml-1"></i>שמור וסיים</button>' +
+    '<button onclick="doCancel()" class="w-full mt-3 text-[11px] text-cream-500">מחק את המפגש בלי לשמור</button>';
+}
+
+/** תיבת המיקום, בצורה הנכונה לפי posType הספר: דף / פרק עם חלקים / מספר יחיד. */
+function renderPosInput(b, curVal){
+  var book = b.posBook || null;
+  var posType = posTypeFor(b);
+
+  if (posType === 'daf') {
+    var daf = curVal !== null ? Math.floor(curVal) : '';
+    var isBet = POS_AMUD[b.goalId] === 'ב';
+    return '' +
+      '<div class="flex gap-2">' +
+        '<input data-pos-daf="' + esc(b.goalId) + '" type="number" min="1" step="1" dir="ltr" ' +
+          'value="' + (daf === '' ? '' : daf) + '" placeholder="דף" oninput="updatePosPreview(\'' + esc(b.goalId) + '\')" ' +
+          'class="flex-1 px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm num">' +
+        '<div class="flex rounded-xl overflow-hidden border border-ink-600">' +
+          '<button type="button" data-pos-amud="' + esc(b.goalId) + '" data-val="א" ' +
+            'onclick="setAmud(\'' + esc(b.goalId) + '\',\'א\')" ' +
+            'class="px-3 py-2.5 text-sm ' + (!isBet ? 'bg-rose-400 text-ink-900' : 'bg-ink-800 text-cream-300') + '">א</button>' +
+          '<button type="button" data-pos-amud="' + esc(b.goalId) + '" data-val="ב" ' +
+            'onclick="setAmud(\'' + esc(b.goalId) + '\',\'ב\')" ' +
+            'class="px-3 py-2.5 text-sm ' + (isBet ? 'bg-rose-400 text-ink-900' : 'bg-ink-800 text-cream-300') + '">ב</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  if (posType === 'number' && book && book.sections && book.sections.length) {
+    var p = curVal !== null ? valueToPositionJS(book, curVal) : null;
+    var secIdx = p ? p.sectionIdx : 0;
+    var chapter = p ? p.chapter : '';
+    var opts = book.sections.map(function(s, i){
+      return '<option value="' + i + '"' + (i === secIdx ? ' selected' : '') + '>' + esc(s.name) + '</option>';
+    }).join('');
+    return '' +
+      '<div class="flex gap-2">' +
+        '<select data-pos-sec="' + esc(b.goalId) + '" oninput="updatePosPreview(\'' + esc(b.goalId) + '\')" ' +
+          'class="flex-1 px-2 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-xs">' + opts + '</select>' +
+        '<input data-pos-ch="' + esc(b.goalId) + '" type="number" min="1" step="1" dir="ltr" ' +
+          'value="' + (chapter === '' ? '' : chapter) + '" placeholder="' + esc(b.unit) + '" oninput="updatePosPreview(\'' + esc(b.goalId) + '\')" ' +
+          'class="w-20 px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm num">' +
+      '</div>';
+  }
+
+  return '<input data-pos-num="' + esc(b.goalId) + '" type="number" min="0" step="1" dir="ltr" ' +
+    'value="' + (curVal !== null ? curVal : '') + '" placeholder="' + esc(b.unit) + '" oninput="updatePosPreview(\'' + esc(b.goalId) + '\')" ' +
+    'class="w-full px-3 py-2.5 rounded-xl bg-ink-800 border border-ink-600 text-sm num">';
+}
+
+function setAmud(goalId, val){
+  POS_AMUD[goalId] = val;
+  document.querySelectorAll('[data-pos-amud="' + goalId + '"]').forEach(function(btn){
+    var on = btn.getAttribute('data-val') === val;
+    btn.className = 'px-3 py-2.5 text-sm ' + (on ? 'bg-rose-400 text-ink-900' : 'bg-ink-800 text-cream-300');
+  });
+  updatePosPreview(goalId);
+}
+
+/** קורא את תיבת המיקום הנוכחית ומחזיר ערך מספרי, או null אם לא הוזן/תקין. */
+function readPosVal(b){
+  var book = b.posBook || null;
+  var posType = posTypeFor(b);
+
+  if (posType === 'daf') {
+    var dafEl = document.querySelector('[data-pos-daf="' + b.goalId + '"]');
+    var daf = dafEl ? parseFloat(dafEl.value) : NaN;
+    if (isNaN(daf) || daf <= 0) return null;
+    return daf + (POS_AMUD[b.goalId] === 'ב' ? 0.5 : 0);
+  }
+  if (posType === 'number' && book && book.sections && book.sections.length) {
+    var secEl = document.querySelector('[data-pos-sec="' + b.goalId + '"]');
+    var chEl = document.querySelector('[data-pos-ch="' + b.goalId + '"]');
+    var secIdx = secEl ? parseInt(secEl.value, 10) : NaN;
+    var chapter = chEl ? parseFloat(chEl.value) : NaN;
+    if (isNaN(secIdx) || isNaN(chapter) || chapter <= 0) return null;
+    return positionToValueJS(book, secIdx, chapter);
+  }
+  var numEl = document.querySelector('[data-pos-num="' + b.goalId + '"]');
+  var num = numEl ? parseFloat(numEl.value) : NaN;
+  return isNaN(num) ? null : num;
+}
+
+function formatValFor(b, val){
+  if (val === null) return '—';
+  var book = b.posBook || null;
+  if (book) return formatPositionJS(book, val);
+  return posTypeFor(b) === 'daf' ? formatDafJS(val) : ((b.unit || 'פרק') + ' ' + numToHebrewJS(val));
+}
+
+function previewTextFor(b, curVal){
+  return formatValFor(b, curVal === undefined ? null : curVal);
+}
+
+function updatePosPreview(goalId){
+  var b = null;
+  (SESSION.breakdown || []).forEach(function(x){ if (x.goalId === goalId) b = x; });
+  if (!b) return;
+  var el = document.getElementById('posPreview-' + goalId);
+  if (el) el.textContent = formatValFor(b, readPosVal(b));
+  queueDraft();
+}
+
+function collectWrapup(){
+  return (SESSION.breakdown || []).map(function(b){
+    var val = readPosVal(b);
+    var summaryEl = document.querySelector('[data-wrap="summary"][data-goal="' + b.goalId + '"]');
+    return {
+      goalId: b.goalId,
+      posVal: val === null ? '' : val,
+      reached: val === null ? '' : formatValFor(b, val),
+      summary: summaryEl ? summaryEl.value : ''
+    };
+  });
+}
+
+function queueDraft(){
+  if (DRAFT_TIMER) clearTimeout(DRAFT_TIMER);
+  var st = $('draftStatus');
+  if (st) st.textContent = 'מקליד…';
+  DRAFT_TIMER = setTimeout(function(){
+    var obj = {};
+    collectWrapup().forEach(function(e){
+      obj[e.goalId] = { posVal: e.posVal, reached: e.reached, summary: e.summary };
+    });
+    rpcFetch('saveDraft', [obj]).then(function(r){
+      if (st) st.textContent = 'טיוטה נשמרה ' + r.at;
+    }, function(){
+      if (st) st.textContent = 'הטיוטה לא נשמרה';
+    });
+  }, 1200);
+}
+
+/* --- פעולות מפגש --- */
+
+function applySession(s){ SESSION = s; SYNC_AT = Date.now(); renderSession(); }
+
+function doStart(agoMin){
+  call('startSession', [{
+    goalId: $('startGoal') ? $('startGoal').value : '',
+    seder: $('startSeder') ? $('startSeder').value : '',
+    planId: $('startPlanId') ? $('startPlanId').value : '',
+    plannedMin: $('startPlannedMin') ? (parseInt($('startPlannedMin').value, 10) || 0) : 0,
+    startedAgoMin: agoMin
+  }], function(s){ applySession(s); toast('בהצלחה בלימוד', 'success'); }, $('startBtn'), 'מתחיל…');
+}
+
+function doPause(){
+  call((SESSION && SESSION.running) ? 'pauseSession' : 'resumeSession', [],
+    applySession, $('pauseBtn'), '…');
+}
+
+function doSwitch(goalId){
+  if (!SESSION || SESSION.currentGoalId === goalId) return;
+  call('switchGoal', [goalId], function(s){
+    applySession(s);
+    var g = null;
+    (BOOT.goals || []).forEach(function(x){ if (x.id === goalId) g = x; });
+    toast('עברת ל' + (g ? g.name : 'ספר אחר'));
+  });
+}
+
+function doSetSeder(key){
+  if (!SESSION || SESSION.seder === key) return;
+  call('setSessionSeder', [key], function(s){ applySession(s); toast('שויך ל' + seder(key).name); });
+}
+
+function doStop(){
+  call('stopSession', [], function(s){
+    applySession(s);
+    toast('סכם את המפגש — אפשר גם מהמחשב', 'success');
+  }, $('stopBtn'), 'מסיים…');
+}
+
+function doFinish(){
+  call('finishSession', [collectWrapup()], function(res){
+    toast(res.status === 'discarded' ? res.message
+      : ('נשמר · ' + fmtMin(res.totalMin) + ' של לימוד'), 'success');
+    SESSION = null;
+    boot();
+  }, $('finishBtn'), 'שומר…');
+}
+
+function doCancel(){
+  if (!confirm('לבטל את המפגש? הזמן והסיכום לא יישמרו.')) return;
+  call('cancelSession', [], function(){ SESSION = null; toast('המפגש בוטל'); boot(); });
+}
+
+/* ==========================================================================
+   סדרי היום — מקובצים לפי סדר
+   ========================================================================== */
+
+function renderTodayPlan(){
+  var list = $('todayPlanList');
+  var blocks = (BOOT && BOOT.todayPlan) || [];
+  if (!blocks.length) {
+    list.innerHTML = '<p class="text-xs text-cream-500 text-center py-3">לא תוכננו סדרים להיום.</p>';
+    return;
+  }
+  var html = '';
+  (BOOT.seders || []).forEach(function(sd){
+    var inSeder = blocks.filter(function(b){ return b.seder === sd.key; });
+    if (!inSeder.length) return;
+    html += '<div>' +
+      '<div class="flex items-center gap-2 mb-1.5">' + sederPill(sd.key) + '</div>' +
+      inSeder.map(function(b){
+        var done = b.status === 'done';
+        return '<div class="flex items-center gap-3 p-3 rounded-2xl bg-ink-700/50 border border-ink-600 mb-1.5' +
+          (done ? ' opacity-55' : '') + '">' +
+          '<div class="w-11 text-center">' +
+            '<p class="text-sm font-bold num ' + (done ? 'text-cream-500' : 'text-rose-400') + '">' + esc(b.startTime) + '</p>' +
+          '</div>' +
+          '<div class="flex-1 min-w-0">' +
+            '<p class="text-sm font-medium truncate' + (done ? ' line-through text-cream-500' : '') + '">' + esc(b.goalName) + '</p>' +
+            '<p class="text-[11px] text-cream-400">' + fmtMin(b.durationMin) + '</p>' +
+          '</div>' +
+          (done ? '<i class="fa-solid fa-circle-check text-rose-400"></i>'
+                : '<i class="fa-regular fa-circle text-cream-500"></i>') +
+          '</div>';
+      }).join('') + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function renderQuickStats(){
+  var s = BOOT.stats;
+  $('qsWeek').textContent = fmtHours(s.thisWeekMin);
+  $('qsStreak').textContent = s.streak;
+  var t = $('qsTrend');
+  if (s.lastWeekMin === 0 && s.thisWeekMin === 0) {
+    t.textContent = '—'; t.className = 'text-xl font-bold num text-cream-400';
+  } else {
+    t.textContent = (s.diffMin >= 0 ? '+' : '−') + fmtHours(Math.abs(s.diffMin));
+    t.className = 'text-xl font-bold num ' + (s.diffMin >= 0 ? 'text-rose-400' : 'text-clay-400');
+  }
+}
+
+/* ==========================================================================
+   טקס מוצ״ש — הסתכלות אחורה, תכנון קדימה, ורק כאן יעדים
+   ========================================================================== */
+
+function renderMotzashBanner(){
+  var el = $('motzashBanner');
+  var p = BOOT && BOOT.planning;
+  if (!p || !p.showPrompt) { el.classList.add('hide'); el.innerHTML = ''; return; }
+  el.classList.remove('hide');
+  el.innerHTML =
+    '<div class="rounded-xl2 bg-gradient-to-l from-caramel-500/25 to-rose-500/20 border border-caramel-400/40 p-4 fade-in">' +
+      '<div class="flex items-center gap-3">' +
+        '<div class="w-10 h-10 rounded-xl bg-ink-900/40 flex items-center justify-center text-lg shrink-0">🌟</div>' +
+        '<div class="flex-1 min-w-0">' +
+          '<p class="text-sm font-bold">שבוע טוב</p>' +
+          '<p class="text-[11px] text-cream-300">נסכם את השבוע ונתכנן את הבא</p>' +
+        '</div>' +
+        '<button onclick="openMotzash()" class="tap px-4 py-2 rounded-xl bg-rose-400 text-ink-900 text-xs font-bold shrink-0">' +
+          'בוא נתחיל</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function openMotzash(){
+  SEL_WEEK = 'next';
+  showView('plan');
+  call('getWeekReview', [], function(rev){
+    REVIEW = rev;
+    renderReviewCard();
+    renderTargetsCard();
+    selectWeek('next');
+  });
+}
+
+var REVIEW = null;
+
+function renderReviewCard(){
+  var el = $('reviewCard');
+  if (!REVIEW) { el.classList.add('hide'); return; }
+  el.classList.remove('hide');
+  var r = REVIEW;
+
+  var sederRows = (BOOT.seders || []).map(function(sd){
+    var m = r.bySeder[sd.key] || 0;
+    if (!m) return '';
+    return '<div class="flex items-center justify-between text-xs py-0.5">' +
+      '<span class="text-cream-300">' + sd.icon + ' ' + esc(sd.name) + '</span>' +
+      '<span class="num" style="color:' + sd.color + '">' + fmtMin(m) + '</span></div>';
+  }).join('');
+
+  var bookRows = r.books.length ? r.books.map(function(b){
+    return '<div class="flex items-center gap-2 text-xs py-1">' +
+      '<span class="w-2 h-2 rounded-full shrink-0" style="background:' + esc(b.color) + '"></span>' +
+      '<span class="flex-1 min-w-0 truncate text-cream-200">' + esc(b.name) + '</span>' +
+      '<span class="text-cream-400 num shrink-0">' +
+        (b.units ? (b.units + ' ' + esc(b.unit) + ' · ') : '') + fmtMin(b.minutes) + '</span>' +
+      '</div>';
+  }).join('') : '<p class="text-xs text-cream-500 py-1">לא נרשמו מפגשים בשבוע שעבר.</p>';
+
+  var up = r.diffMin >= 0;
+  el.innerHTML =
+    '<div class="flex items-center justify-between mb-3">' +
+      '<h2 class="text-sm font-semibold flex items-center gap-2">' +
+        '<i class="fa-solid fa-scroll text-caramel-300"></i> סיכום השבוע</h2>' +
+      '<span class="text-[11px] text-cream-500 num">' + esc(r.reviewWeekStart) + ' — ' + esc(r.reviewWeekEnd) + '</span>' +
+    '</div>' +
+    '<div class="grid grid-cols-3 gap-2 mb-4 text-center">' +
+      '<div><p class="text-lg font-bold num text-rose-400">' + fmtHours(r.totalMin) + '</p>' +
+        '<p class="text-[11px] text-cream-400">שעות</p></div>' +
+      '<div><p class="text-lg font-bold num ' + (up ? 'text-rose-400' : 'text-clay-400') + '">' +
+        (up ? '+' : '−') + fmtHours(Math.abs(r.diffMin)) + '</p>' +
+        '<p class="text-[11px] text-cream-400">מול קודם</p></div>' +
+      '<div><p class="text-lg font-bold num text-cream-100">' + r.daysLearned + '</p>' +
+        '<p class="text-[11px] text-cream-400">ימים</p></div>' +
+    '</div>' +
+    (sederRows ? '<div class="mb-3 pb-3 border-b border-ink-600">' + sederRows + '</div>' : '') +
+    '<p class="text-[11px] text-cream-500 mb-1">מה למדת</p>' +
+    bookRows;
+}
+
+/**
+ * הצבת יעדים — מוצעת רק על ספרים שבאמת למדת השבוע ואין להם יעד.
+ * דילוג הוא תשובה לגיטימית; ספר בלי יעד פשוט צובר יחידות.
+ */
+function renderTargetsCard(){
+  var el = $('targetsCard');
+  if (!REVIEW || !REVIEW.needTarget.length) { el.classList.add('hide'); el.innerHTML = ''; return; }
+  el.classList.remove('hide');
+
+  el.innerHTML =
+    '<h2 class="text-sm font-semibold mb-1 flex items-center gap-2">' +
+      '<i class="fa-solid fa-flag-checkered text-rose-400"></i> להציב יעד?</h2>' +
+    '<p class="text-[11px] text-cream-500 mb-4 leading-relaxed">' +
+      'למדת את הספרים האלה השבוע ואין להם יעד. אפשר להגדיר כמה יחידות יש בסך הכול ' +
+      'כדי לקבל פס התקדמות — או פשוט לדלג ולהמשיך לצבור.</p>' +
+    REVIEW.needTarget.map(function(b){
+      return '<div class="flex items-center gap-2 mb-2">' +
+        '<div class="flex-1 min-w-0">' +
+          '<p class="text-sm font-medium truncate">' + esc(b.icon) + ' ' + esc(b.name) + '</p>' +
+          '<p class="text-[11px] text-cream-500 num">נלמדו ' + b.done + ' ' + esc(b.unit) + ' עד כה</p>' +
+        '</div>' +
+        '<input id="tgt-' + esc(b.goalId) + '" type="number" min="0" dir="ltr" placeholder="סה״כ" ' +
+          'class="w-[84px] px-2 py-2 rounded-lg bg-ink-700 border border-ink-600 text-sm num">' +
+        '<button onclick="applyTarget(\'' + esc(b.goalId) + '\')" ' +
+          'class="tap px-3 py-2 rounded-lg bg-rose-400 text-ink-900 text-xs font-bold shrink-0">קבע</button>' +
+        '</div>';
+    }).join('') +
+    '<button onclick="skipTargets()" class="w-full mt-2 text-[11px] text-cream-500">דלג — אמשיך בלי יעדים</button>';
+}
+
+function applyTarget(goalId){
+  var el = $('tgt-' + goalId);
+  var val = parseFloat(el.value);
+  if (!val || val <= 0) { toast('מלא מספר יחידות', 'error'); el.focus(); return; }
+  call('setGoalTarget', [goalId, val], function(){
+    toast('היעד נקבע', 'success');
+    REVIEW.needTarget = REVIEW.needTarget.filter(function(b){ return b.goalId !== goalId; });
+    renderTargetsCard();
+    refreshData();
+  });
+}
+
+function skipTargets(){
+  $('targetsCard').classList.add('hide');
+  toast('אפשר להציב יעד בכל שלב מארון הספרים');
+}
+
+/* ==========================================================================
+   ארון הספרים — בחירה מהקטלוג
+   ========================================================================== */
+
+function renderGoals(){
+  var list = $('goalsList');
+  var goals = (BOOT && BOOT.goals) || [];
+  if (!goals.length) {
+    list.innerHTML = '<p class="text-xs text-cream-500 text-center py-3">ארון הספרים ריק.</p>';
+    return;
+  }
+  list.innerHTML = goals.map(function(g){
+    // ספר בלי יעד מציג ספירה מצטברת במקום יחס — ואין לו אחוז
+    var meta = g.hasTarget
+      ? (g.done + ' / ' + g.total + ' ' + esc(g.unit))
+      : ('נלמדו ' + g.done + ' ' + esc(g.unit));
+    var right = g.hasTarget
+      ? '<span class="text-xs num text-caramel-300 font-semibold">' + Math.round(g.percent) + '%</span>'
+      : '<span class="text-[10px] text-cream-500 border border-ink-600 rounded-md px-1.5 py-0.5">ללא יעד</span>';
+    return '<div class="flex items-center gap-3 p-3 rounded-2xl bg-ink-700/50 border border-ink-600">' +
+      '<span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:' + esc(g.color) + '"></span>' +
+      '<div class="flex-1 min-w-0">' +
+        '<p class="text-sm font-medium truncate">' + esc(g.categoryIcon) + ' ' + esc(g.name) + '</p>' +
+        '<p class="text-[11px] text-cream-400 num">' + meta +
+          (g.position ? ' · ' + esc(g.position) : '') + '</p>' +
+      '</div>' +
+      right +
+      '<button onclick="editGoal(\'' + esc(g.id) + '\')" class="tap w-8 h-8 rounded-lg bg-ink-800 text-cream-400 text-xs">' +
+        '<i class="fa-solid fa-pen"></i></button>' +
+      '<button onclick="removeGoal(\'' + esc(g.id) + '\',\'' + esc(g.name) + '\')" class="tap w-8 h-8 rounded-lg bg-ink-800 text-cream-500 text-xs">' +
+        '<i class="fa-solid fa-trash"></i></button>' +
+      '</div>';
+  }).join('');
+}
+
+function catalogCat(key){
+  var list = (BOOT && BOOT.catalog) || [];
+  for (var i=0;i<list.length;i++) if (list[i].key === key) return list[i];
+  return null;
+}
+
+function renderCategories(){
+  $('gfCategories').innerHTML = ((BOOT && BOOT.catalog) || []).map(function(c){
+    var on = c.key === GF_CAT;
+    return '<button onclick="pickCategory(\'' + esc(c.key) + '\')" ' +
+      'class="tap px-3 py-2 rounded-xl text-xs font-medium border ' +
+      (on ? 'bg-rose-400 text-ink-900 border-rose-400' : 'bg-ink-700 text-cream-300 border-ink-600') + '">' +
+      c.icon + ' ' + esc(c.name) + '</button>';
+  }).join('');
+}
+
+function pickCategory(key){
+  GF_CAT = key;
+  renderCategories();
+  renderBookSelect();
+}
+
+/** בונה select מקובץ ב-optgroup לפי השדה group של כל ספר. */
+function renderBookSelect(preselectKey){
+  var cat = catalogCat(GF_CAT);
+  var wrap = $('gfBookWrap');
+  $('gfCatNote').textContent = cat ? (cat.note || '') : '';
+
+  if (!cat || !cat.books.length) {          // custom — אין קטלוג
+    wrap.classList.add('hide');
+    $('gfUnit').value = $('gfUnit').value || (cat ? cat.unit : 'יחידה');
+    $('gfStartU').value = $('gfStartU').value || 1;
+    return;
+  }
+  wrap.classList.remove('hide');
+
+  var groups = [];
+  var byGroup = {};
+  cat.books.forEach(function(b){
+    var g = b.group || '—';
+    if (!byGroup[g]) { byGroup[g] = []; groups.push(g); }
+    byGroup[g].push(b);
+  });
+
+  var html = '<option value="">— בחר —</option>';
+  groups.forEach(function(g){
+    html += '<optgroup label="' + esc(g) + '">';
+    byGroup[g].forEach(function(b){
+      html += '<option value="' + esc(b.key) + '"' +
+        (b.key === preselectKey ? ' selected' : '') + '>' + esc(b.name) +
+        (b.total ? ' · ' + b.total + ' ' + esc(cat.unit) : ' · ללא יעד מובנה') + '</option>';
+    });
+    html += '</optgroup>';
+  });
+  $('gfBook').innerHTML = html;
+  if (preselectKey) onBookPicked(true);
+}
+
+/** בחירת ספר ממלאת ברירות מחדל — המשתמש עדיין יכול לדרוס הכול. */
+function onBookPicked(keepUserValues){
+  var cat = catalogCat(GF_CAT);
+  if (!cat) return;
+  var key = $('gfBook').value;
+  var book = null;
+  cat.books.forEach(function(b){ if (b.key === key) book = b; });
+
+  $('gfUnit').value = cat.unit;
+  $('gfStartU').value = cat.startUnit || 1;
+
+  if (!book) { if (!keepUserValues) { $('gfName').value = ''; $('gfTotal').value = ''; } return; }
+  if (!keepUserValues) $('gfName').value = book.name;
+
+  var totalEl = $('gfTotal');
+  if (book.total) {
+    if (!keepUserValues) totalEl.value = book.total;
+    totalEl.placeholder = String(book.total);
+  } else {
+    // אין מספר מאומת — משאירים ריק. ספר בלי יעד הוא מצב תקין לגמרי,
+    // ואפשר להוסיף יעד אחר כך במוצ״ש.
+    if (!keepUserValues) totalEl.value = '';
+    totalEl.placeholder = 'ללא יעד';
+  }
+}
+
+function renderColorSwatches(selected){
+  var pal = (BOOT && BOOT.palette) || ['#E9B8BC'];
+  $('gfColors').setAttribute('data-selected', selected);
+  $('gfColors').innerHTML = pal.map(function(c){
+    return '<button onclick="pickColor(\'' + c + '\')" ' +
+      'class="tap w-8 h-8 rounded-full border-2 ' + (c === selected ? 'border-cream-100' : 'border-transparent') + '" ' +
+      'style="background:' + c + '"></button>';
+  }).join('');
+}
+
+function pickColor(c){ renderColorSwatches(c); }
+
+function toggleGoalForm(forceClose){
+  var form = $('goalForm');
+  var isOpen = !form.classList.contains('hide');
+  if (isOpen || forceClose) {
+    form.classList.add('hide');
+    $('goalFormBtn').textContent = '+ הוסף ספר';
+    return;
+  }
+  $('gfId').value = ''; $('gfName').value = ''; $('gfTotal').value = '';
+  $('gfDone').value = '0'; $('gfPos').value = ''; $('gfUnit').value = '';
+  $('gfStartU').value = '';
+  GF_CAT = 'bavli';
+  renderCategories();
+  renderBookSelect();
+  renderColorSwatches(((BOOT && BOOT.palette) || ['#E9B8BC'])[0]);
+  form.classList.remove('hide');
+  $('goalFormBtn').textContent = '✕ סגור';
+}
+
+function editGoal(id){
+  var g = null;
+  (BOOT.goals || []).forEach(function(x){ if (x.id === id) g = x; });
+  if (!g) return;
+  $('gfId').value = g.id;
+  GF_CAT = g.category || 'custom';
+  renderCategories();
+  renderBookSelect(g.bookKey);
+  $('gfName').value = g.name; $('gfUnit').value = g.unit;
+  $('gfTotal').value = g.total; $('gfDone').value = g.done;
+  $('gfStartU').value = g.startUnit; $('gfPos').value = g.position;
+  renderColorSwatches(g.color);
+  $('goalForm').classList.remove('hide');
+  $('goalFormBtn').textContent = '✕ סגור';
+}
+
+function saveGoalForm(){
+  call('saveGoal', [{
+    id: $('gfId').value,
+    category: GF_CAT,
+    bookKey: $('gfBook') && !$('gfBookWrap').classList.contains('hide') ? $('gfBook').value : '',
+    name: $('gfName').value,
+    unit: $('gfUnit').value,
+    total: $('gfTotal').value,
+    done: $('gfDone').value,
+    startUnit: $('gfStartU').value,
+    position: $('gfPos').value,
+    color: $('gfColors').getAttribute('data-selected') || '#E9B8BC'
+  }], function(){
+    toast('נשמר בארון הספרים', 'success');
+    toggleGoalForm(true);
+    refreshData();
+  }, $('gfSave'), 'שומר…');
+}
+
+function removeGoal(id, name){
+  if (!confirm('למחוק את "' + name + '"? רשומות הלימוד הקיימות יישארו בגיליון.')) return;
+  call('deleteGoal', [id], function(){ toast('נמחק'); refreshData(); });
+}
+
+/* ==========================================================================
+   עורך התכנון השבועי — עם מימד הסדר
+   ========================================================================== */
+
+function selectedWeekStart(){
+  return SEL_WEEK === 'next' ? BOOT.nextWeekStart : BOOT.weekStart;
+}
+
+function selectWeek(which){
+  SEL_WEEK = which;
+  call('getWeekPlanFor', [selectedWeekStart()], function(res){
+    PLAN_DRAFT = res.plan.map(function(b){
+      return { date:b.date, startTime:b.startTime, durationMin:b.durationMin,
+               goalId:b.goalId, seder:b.seder };
+    });
+    renderPlanEditor(true);
+  });
+}
+
+function addDaysLocal(dateStr, days){
+  var p = dateStr.split('-');
+  var d = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10), 12, 0, 0);
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+}
+
+function renderPlanEditor(skipLoad){
+  if (!BOOT) return;
+  renderGoals();
+
+  $('tabThisWeek').className = 'px-3 py-1 rounded-lg text-xs font-medium ' +
+    (SEL_WEEK === 'this' ? 'bg-rose-400 text-ink-900' : 'text-cream-400');
+  $('tabNextWeek').className = 'px-3 py-1 rounded-lg text-xs font-medium ' +
+    (SEL_WEEK === 'next' ? 'bg-rose-400 text-ink-900' : 'text-cream-400');
+
+  var ws = selectedWeekStart();
+  if (!skipLoad && !PLAN_DRAFT.length && SEL_WEEK === 'this') {
+    PLAN_DRAFT = (BOOT.plan || []).map(function(b){
+      return { date:b.date, startTime:b.startTime, durationMin:b.durationMin,
+               goalId:b.goalId, seder:b.seder };
+    });
+  }
+  $('weekRangeLabel').textContent = ws + ' — ' + addDaysLocal(ws, 6);
+
+  var goals = BOOT.goals || [];
+  var seders = BOOT.seders || [];
+  var html = '';
+
+  for (var i = 0; i < 7; i++) {
+    var date = addDaysLocal(ws, i);
+    var isToday = date === BOOT.today;
+    var dayBlocks = PLAN_DRAFT.filter(function(b){ return b.date === date; });
+
+    html += '<div class="rounded-2xl bg-ink-700/40 border ' +
+      (isToday ? 'border-rose-400/40' : 'border-ink-600') + ' p-3">' +
+      '<div class="flex items-center justify-between mb-2">' +
+        '<span class="text-xs font-semibold ' + (isToday ? 'text-rose-400' : 'text-cream-300') + '">' +
+          'יום ' + BOOT.dayNames[i] +
+          '<span class="text-cream-500 font-normal num mr-2">' + date.slice(5) + '</span></span>' +
+        '<div class="flex gap-1">' +
+          seders.map(function(sd){
+            return '<button onclick="addBlock(\'' + date + '\',\'' + sd.key + '\')" ' +
+              'title="הוסף ' + esc(sd.name) + '" ' +
+              'class="tap w-7 h-7 rounded-lg bg-ink-800 border border-ink-600 text-xs">' +
+              sd.icon + '</button>';
+          }).join('') +
+        '</div>' +
+      '</div>';
+
+    if (!dayBlocks.length) {
+      html += '<p class="text-[11px] text-cream-500 py-1">—</p>';
+    } else {
+      // מקבץ לפי סדר, ובכל סדר לפי שעה
+      seders.forEach(function(sd){
+        var inSeder = dayBlocks.filter(function(b){ return b.seder === sd.key; })
+          .sort(function(a,b){ return a.startTime < b.startTime ? -1 : 1; });
+        if (!inSeder.length) return;
+        html += '<div class="mb-2">' +
+          '<p class="text-[10px] mb-1 font-semibold" style="color:' + sd.color + '">' +
+            sd.icon + ' ' + esc(sd.name) + '</p>';
+        inSeder.forEach(function(b){
+          var idx = PLAN_DRAFT.indexOf(b);
+          var opts = goals.map(function(g){
+            return '<option value="' + esc(g.id) + '"' + (g.id === b.goalId ? ' selected' : '') + '>' +
+              esc(g.name) + '</option>';
+          }).join('');
+          var sederOpts = seders.map(function(s){
+            return '<option value="' + esc(s.key) + '"' + (s.key === b.seder ? ' selected' : '') + '>' +
+              s.icon + '</option>';
+          }).join('');
+          html += '<div class="flex items-center gap-1.5 mb-1.5">' +
+            '<input type="time" dir="ltr" value="' + esc(b.startTime) + '" ' +
+              'onchange="updBlock(' + idx + ',\'startTime\',this.value)" ' +
+              'class="w-[84px] px-2 py-2 rounded-lg bg-ink-800 border border-ink-600 text-xs num">' +
+            '<select onchange="updBlock(' + idx + ',\'seder\',this.value)" ' +
+              'class="w-[52px] px-1 py-2 rounded-lg bg-ink-800 border border-ink-600 text-xs">' + sederOpts + '</select>' +
+            '<select onchange="updBlock(' + idx + ',\'goalId\',this.value)" ' +
+              'class="flex-1 min-w-0 px-2 py-2 rounded-lg bg-ink-800 border border-ink-600 text-xs">' + opts + '</select>' +
+            '<input type="number" dir="ltr" min="5" step="5" value="' + b.durationMin + '" ' +
+              'onchange="updBlock(' + idx + ',\'durationMin\',this.value)" ' +
+              'class="w-[54px] px-1 py-2 rounded-lg bg-ink-800 border border-ink-600 text-xs num">' +
+            '<button onclick="rmBlock(' + idx + ')" class="tap w-7 h-7 rounded-lg bg-ink-800 text-cream-500 text-xs shrink-0">' +
+              '<i class="fa-solid fa-xmark"></i></button>' +
+            '</div>';
+        });
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+  }
+  $('weekDays').innerHTML = html;
+
+  // סיכומים
+  var totalMin = PLAN_DRAFT.reduce(function(s,b){ return s + (parseInt(b.durationMin,10)||0); }, 0);
+  $('planTotals').textContent = PLAN_DRAFT.length + ' בלוקים · ' + fmtMin(totalMin) + ' בשבוע';
+  $('planSederTotals').innerHTML = seders.map(function(sd){
+    var mins = PLAN_DRAFT.filter(function(b){ return b.seder === sd.key; })
+      .reduce(function(s,b){ return s + (parseInt(b.durationMin,10)||0); }, 0);
+    return '<div class="rounded-xl bg-ink-700/40 border border-ink-600 p-2 text-center">' +
+      '<p class="text-sm">' + sd.icon + '</p>' +
+      '<p class="text-xs num font-semibold mt-0.5" style="color:' + sd.color + '">' + fmtHours(mins) + ' ש׳</p>' +
+      '</div>';
+  }).join('');
+}
+
+function addBlock(date, sederKey){
+  var goals = BOOT.goals || [];
+  if (!goals.length) { toast('בחר קודם ספר בארון הספרים', 'error'); return; }
+  var sd = seder(sederKey);
+  PLAN_DRAFT.push({
+    date: date,
+    startTime: sd.defaultStart,
+    durationMin: BOOT.settings.defaultDurationMin || 90,
+    goalId: goals[0].id,
+    seder: sd.key
+  });
+  renderPlanEditor(true);
+}
+
+function updBlock(idx, field, value){
+  if (!PLAN_DRAFT[idx]) return;
+  PLAN_DRAFT[idx][field] = (field === 'durationMin') ? (parseInt(value,10) || 0) : value;
+  // שינוי שעה מזיז את הבלוק לסדר המתאים אוטומטית
+  if (field === 'startTime') PLAN_DRAFT[idx].seder = sederFromTime(value);
+  renderPlanEditor(true);
+}
+
+function rmBlock(idx){ PLAN_DRAFT.splice(idx, 1); renderPlanEditor(true); }
+
+function savePlan(){
+  var ws = selectedWeekStart();
+  var wantCal = $('chkCalendar').checked;
+  var proceed = function(){
+    call('saveWeekPlan', [ws, PLAN_DRAFT], function(res){
+      var msg = 'התכנון נשמר · ' + res.blocks + ' בלוקים';
+      if (res.calendar && res.calendar.created) msg += ' · ' + res.calendar.created + ' אירועי יומן';
+      toast(msg, 'success');
+      if (res.calendar && res.calendar.failed) {
+        toast('חלק מאירועי היומן נכשלו: ' + (res.calendar.errors || []).slice(0,2).join(' | '), 'error');
+      }
+      refreshData();
+    }, $('savePlanBtn'), 'שומר…');
+  };
+  if (wantCal !== BOOT.settings.createCalendarEvents) {
+    call('saveSettings', [{ createCalendarEvents: wantCal }], function(r){
+      BOOT.settings = r.settings; proceed();
+    });
+  } else proceed();
+}
+
+/* ==========================================================================
+   מסך התקדמות
+   ========================================================================== */
+
+function renderStats(){
+  if (!BOOT) return;
+  var s = BOOT.stats;
+
+  var box = $('trendBox');
+  if (s.lastWeekMin === 0 && s.thisWeekMin === 0) {
+    box.innerHTML = '<p class="text-sm text-cream-400">עוד אין נתונים להשוואה.</p>';
+  } else if (s.lastWeekMin === 0) {
+    box.innerHTML = '<p class="text-3xl font-bold num text-rose-400">' + fmtHours(s.thisWeekMin) + ' שעות</p>' +
+      '<p class="text-xs text-cream-400 mt-1">השבוע הראשון שנמדד</p>';
+  } else {
+    var up = s.diffMin >= 0;
+    box.innerHTML =
+      '<p class="text-4xl font-bold num ' + (up ? 'text-rose-400' : 'text-clay-400') + '">' +
+        (up ? '+' : '−') + fmtHours(Math.abs(s.diffMin)) + '</p>' +
+      '<p class="text-sm text-cream-300 mt-1">' + (up ? 'שעות יותר' : 'שעות פחות') + ' משבוע שעבר</p>' +
+      (s.pctChange !== null ? '<p class="text-xs text-cream-500 mt-1 num">' +
+        (up ? '+' : '') + s.pctChange + '%</p>' : '');
+  }
+
+  $('stThisWeek').textContent = fmtHours(s.thisWeekMin) + ' ש׳';
+  $('stLastWeek').textContent = fmtHours(s.lastWeekMin) + ' ש׳';
+
+  var ad = $('adherenceBox');
+  if (s.plannedThisWeek > 0) {
+    var pct = Math.min(100, s.adherence || 0);
+    ad.innerHTML =
+      '<div class="flex justify-between text-[11px] text-cream-400 mb-1.5">' +
+        '<span>עמידה בתכנון השבועי</span><span class="num">' + Math.round(s.adherence) + '%</span></div>' +
+      '<div class="h-2 rounded-full bg-ink-700 overflow-hidden">' +
+        '<div class="h-full rounded-full bg-gradient-to-l from-rose-400 to-caramel-400" style="width:' + pct + '%"></div></div>' +
+      '<p class="text-[11px] text-cream-500 mt-1.5">' + fmtMin(s.thisWeekMin) + ' מתוך ' +
+        fmtMin(s.plannedThisWeek) + ' מתוכננות</p>';
+  } else { ad.innerHTML = ''; }
+
+  // פילוח לפי סדר
+  var maxSeder = 1;
+  (BOOT.seders || []).forEach(function(sd){
+    maxSeder = Math.max(maxSeder, s.bySeder[sd.key] || 0, s.plannedBySeder[sd.key] || 0);
+  });
+  $('sederBreakdown').innerHTML = (BOOT.seders || []).map(function(sd){
+    var actual = s.bySeder[sd.key] || 0;
+    var last = s.bySederLast[sd.key] || 0;
+    var planned = s.plannedBySeder[sd.key] || 0;
+    var delta = actual - last;
+    var deltaTxt = (last === 0 && actual === 0) ? '—'
+      : ((delta >= 0 ? '+' : '−') + fmtHours(Math.abs(delta)) + ' ש׳');
+    return '<div>' +
+      '<div class="flex items-center justify-between mb-1.5">' +
+        '<span class="text-sm font-medium">' + sd.icon + ' ' + esc(sd.name) + '</span>' +
+        '<span class="text-xs num" style="color:' + sd.color + '">' + fmtMin(actual) + '</span>' +
+      '</div>' +
+      '<div class="h-2.5 rounded-full bg-ink-700 overflow-hidden">' +
+        '<div class="h-full rounded-full transition-all duration-700" ' +
+          'style="width:' + ((actual / maxSeder) * 100) + '%; background:' + sd.color + '"></div></div>' +
+      '<div class="flex justify-between mt-1.5">' +
+        '<span class="text-[11px] text-cream-500">' +
+          (planned ? ('מתוכנן ' + fmtMin(planned)) : 'לא מתוכנן') + '</span>' +
+        '<span class="text-[11px] num ' + (delta >= 0 ? 'text-cream-400' : 'text-clay-400') + '">' +
+          deltaTxt + ' מול שבוע שעבר</span>' +
+      '</div></div>';
+  }).join('');
+
+  // גרף יומי
+  var max = Math.max.apply(null, s.daily.map(function(d){ return d.minutes; }).concat([60]));
+  $('dailyChart').innerHTML = s.daily.map(function(d){
+    var h = Math.max(3, (d.minutes / max) * 100);
+    var isToday = d.date === BOOT.today;
+    return '<div class="flex-1 flex items-end h-full">' +
+      '<div class="w-full rounded-t-lg transition-all ' +
+        (d.minutes ? (isToday ? 'bg-rose-400' : 'bg-caramel-400/70') : 'bg-ink-700') + '" ' +
+        'style="height:' + h + '%" title="' + fmtMin(d.minutes) + '"></div></div>';
+  }).join('');
+  $('dailyLabels').innerHTML = s.daily.map(function(d){
+    var isToday = d.date === BOOT.today;
+    return '<div class="flex-1 text-center text-[10px] ' +
+      (isToday ? 'text-rose-400 font-bold' : 'text-cream-500') + '">' + esc(d.dayName.slice(0,3)) + '</div>';
+  }).join('');
+
+  // התקדמות בספרים
+  var goals = s.goals || [];
+  $('progressList').innerHTML = goals.length ? goals.map(function(g){
+    var weekMin = s.byGoal[g.id] || 0;
+    var head =
+      '<div class="flex items-center justify-between mb-1.5">' +
+        '<span class="text-sm font-medium flex items-center gap-2">' +
+          '<span class="w-2.5 h-2.5 rounded-full" style="background:' + esc(g.color) + '"></span>' +
+          esc(g.categoryIcon) + ' ' + esc(g.name) + '</span>' +
+        '<span class="text-xs num text-cream-300">' +
+          (g.hasTarget ? (g.done + '/' + g.total + ' ' + esc(g.unit))
+                       : (g.done + ' ' + esc(g.unit))) + '</span>' +
+      '</div>';
+
+    // בלי יעד אין פס — פס שמבוסס על מכנה מומצא הוא שקר ויזואלי
+    var body = g.hasTarget
+      ? '<div class="h-2.5 rounded-full bg-ink-700 overflow-hidden">' +
+          '<div class="h-full rounded-full transition-all duration-700" ' +
+            'style="width:' + g.percent + '%; background:linear-gradient(to left, ' +
+            esc(g.color) + ', #B98A63)"></div></div>'
+      : '';
+
+    var foot =
+      '<div class="flex justify-between mt-1.5">' +
+        '<span class="text-[11px] text-cream-500">' +
+          (weekMin ? fmtMin(weekMin) + ' השבוע' : 'לא נלמד השבוע') + '</span>' +
+        (g.hasTarget
+          ? '<span class="text-[11px] num text-caramel-300 font-semibold">' + Math.round(g.percent) + '%</span>'
+          : '<button onclick="showView(\'plan\')" class="text-[11px] text-cream-500">הצב יעד</button>') +
+      '</div>';
+
+    return '<div>' + head + body + foot +
+      (g.position ? '<p class="text-[11px] text-cream-500 mt-1">אחרון: ' + esc(g.position) + '</p>' : '') +
+      '</div>';
+  }).join('') : '<p class="text-xs text-cream-500 text-center py-2">ארון הספרים ריק.</p>';
+
+  // מפגשים אחרונים
+  $('recentList').innerHTML = (s.recent || []).length ? s.recent.map(function(e){
+    return '<div class="p-3 rounded-2xl bg-ink-700/40 border border-ink-600">' +
+      '<div class="flex items-center justify-between mb-1">' +
+        '<span class="text-sm font-medium truncate">' + esc(e.sederIcon) + ' ' + esc(e.goalName) + '</span>' +
+        '<span class="text-[11px] num text-caramel-300 shrink-0 mr-2">' + fmtMin(e.actualMin) + '</span></div>' +
+      '<p class="text-[11px] text-cream-500 num">' + esc(e.date) + ' · ' + esc(e.startTime) +
+        (e.reached ? ' · ' + esc(e.reached) : '') + '</p>' +
+      (e.summary ? '<p class="text-xs text-cream-300 mt-1.5 leading-relaxed">' + esc(e.summary) + '</p>' : '') +
+      '</div>';
+  }).join('') : '<p class="text-xs text-cream-500 text-center py-2">עוד לא נרשמו מפגשים.</p>';
+}
+
+/* ==========================================================================
+   הגדרות
+   ========================================================================== */
+
+function fillSettings(){
+  if (!BOOT) return;
+  var s = BOOT.settings;
+  $('setUrl').value = s.webAppUrl || '';
+  $('setUrl').placeholder = BOOT.webAppUrl || 'https://script.google.com/…/exec';
+  $('setDur').value = s.defaultDurationMin;
+  $('setRemind').value = s.reminderMin;
+  $('verLabel').textContent = 'גרסה ' + (BOOT.version || '2.2');
+}
+
+function saveSettingsForm(){
+  call('saveSettings', [{
+    webAppUrl: $('setUrl').value,
+    defaultDurationMin: $('setDur').value,
+    reminderMin: $('setRemind').value
+  }], function(r){
+    BOOT.settings = r.settings;
+    toast('ההגדרות נשמרו', 'success');
+  }, $('setSaveBtn'), 'שומר…');
+}
+
+function openSheet(){
+  if (sheetUrl) { window.open(sheetUrl, '_blank'); return; }
+  toast('כתובת הגיליון עוד נטענת, נסה שוב');
+}
+
+/* ---------------- הפעלה ---------------- */
+boot();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){ /* לא קריטי */ });
+  });
+}
+</script>
+</body>
+</html>

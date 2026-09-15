@@ -112,6 +112,26 @@ function redirectRes(location, status) {
   eq('rejected', body.ok, false);
   eq('names "Only myself" specifically', body.error.indexOf('Only myself') > -1, true);
 
+  console.log('\n--- a bare 401 (no login-page HTML in the body) also gets the "Only myself" message ---');
+  // Apps Script's doPost always returns HTTP 200 per Api.gs's own contract,
+  // so ANY 401 means "Only myself" blocked the caller — regardless of what
+  // (if anything) is in the body. Before this fix, a 401 whose body didn't
+  // look like a login page fell through to the generic "not JSON" message,
+  // costing a guess at the real cause.
+  FETCH_HANDLER = () => htmlRes('', 401);
+  res = await post('/api/getCatalog', []);
+  body = await res.json();
+  eq('rejected', body.ok, false);
+  eq('bare 401 also names "Only myself", not the generic not-JSON message', body.error.indexOf('Only myself') > -1, true);
+
+  // And a 401 whose body HAPPENS to parse as JSON must still be treated as
+  // blocked, not passed through as if it were a real Api.gs response.
+  FETCH_HANDLER = () => jsonRes({ error: 'unrelated json body' }, 401);
+  res = await post('/api/getCatalog', []);
+  body = await res.json();
+  eq('a JSON-shaped 401 body is still rejected, not passed through as a real response', body.ok, false);
+  eq('...and still names "Only myself"', body.error.indexOf('Only myself') > -1, true);
+
   console.log('\n--- a bad :fn is rejected before any fetch happens ---');
   FETCH_HANDLER = () => { throw new Error('should never be called'); };
   res = await post('/api/sync Catalog!', []);

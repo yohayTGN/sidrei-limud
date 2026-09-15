@@ -14,6 +14,9 @@ secrets.*.json
 .clasp.json
 .clasprc.json
 
+# Wrangler's local cache/auth state — includes the Cloudflare account id
+.wrangler/
+
 # Local deployment config that tends to carry a live /exec URL or
 # spreadsheet ID (Worker proxy secrets, per-machine overrides)
 config.local.*

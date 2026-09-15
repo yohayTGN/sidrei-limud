@@ -133,5 +133,86 @@ ok('targeted book shows a percentage', gl.includes('40%'));
 ok('targetless book shows a cumulative count', gl.includes('נלמדו 4'));
 ok('targetless book is labelled, not shown as 0%', gl.includes('ללא יעד') && !gl.includes('NaN'));
 
-console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exit(fail ? 1 : 0);
+/* ========================================================================
+   web/index.html — the new transport (call()/rpcFetch over fetch, instead
+   of google.script.run). Loaded into an isolated vm context, since it
+   redeclares the same top-level names (BOOT, VIEW, ...) as the
+   apps-script/Index.html copy above and would collide with it otherwise.
+   ======================================================================== */
+console.log('\n--- web/index.html: new transport (call()/rpcFetch) ---');
+
+const webHtmlPath = require('path').join(__dirname, '..', 'web', 'index.html');
+const webHtml = fs.readFileSync(webHtmlPath, 'utf8');
+
+ok('web/index.html never references google.script.run anywhere',
+  !webHtml.includes('google.script.run'));
+
+const webJs = webHtml.match(/<script>([\s\S]*?)<\/script>/g)
+  .map(s => s.replace(/^<script>|<\/script>$/g, ''))
+  .sort((a, b) => b.length - a.length)[0];
+
+const vm = require('vm');
+const webEls = {};
+function webFakeEl(){
+  const e = { classList:{add(){},remove(){},toggle(){}}, style:{}, innerHTML:'',
+    textContent:'', value:'', focus(){}, setAttribute(){}, getAttribute(){return null;},
+    _children: [],
+    appendChild(child){ e._children.push(child); },
+    remove(){}, querySelectorAll(){return [];} };
+  return e;
+}
+
+let FETCH_CALLS = [];
+let FETCH_RESPONSE = null;   // { ok:true, data } or { ok:false, error }, set per test below
+
+const webSandbox = {
+  document: {
+    getElementById: id => (webEls[id] = webEls[id] || webFakeEl()),
+    querySelector: sel => (sel === 'meta[name="api-base"]'
+      ? { getAttribute: () => 'https://worker.example' } : null),
+    querySelectorAll: () => [],
+    addEventListener: () => {},
+    createElement: webFakeEl,
+    hidden: false
+  },
+  window: { scrollTo(){}, open(){}, addEventListener(){} },
+  navigator: {},   // no serviceWorker key -> the registration branch is a no-op
+  requestAnimationFrame: f => f(),
+  confirm: () => true,
+  setInterval: () => 0, clearInterval: () => {},
+  setTimeout: () => 0, clearTimeout: () => {},
+  fetch: (url, opts) => {
+    FETCH_CALLS.push({ url, opts });
+    return Promise.resolve({ json: () => Promise.resolve(FETCH_RESPONSE) });
+  },
+  console
+};
+vm.createContext(webSandbox);
+vm.runInContext(webJs.replace(/^boot\(\);$/m, ''), webSandbox);
+
+function flush(){ return new Promise(resolve => setImmediate(resolve)); }
+
+(async function () {
+  FETCH_CALLS = [];
+  FETCH_RESPONSE = { ok: true, data: { hello: 'world' } };
+  let received = null;
+  webSandbox.call('getBootstrap', ['x', 1], function (res) { received = res; }, null, null);
+  await flush();
+  ok('call() POSTs to <api-base>/api/<fn>',
+    FETCH_CALLS.length === 1 && FETCH_CALLS[0].url === 'https://worker.example/api/getBootstrap');
+  ok('sends the args array as the JSON body, verbatim',
+    FETCH_CALLS[0].opts.body === JSON.stringify(['x', 1]));
+  ok('on {ok:true}, onOk receives body.data (not the whole envelope)',
+    JSON.stringify(received) === JSON.stringify({ hello: 'world' }));
+
+  FETCH_CALLS = [];
+  FETCH_RESPONSE = { ok: false, error: 'שגיאת בדיקה מכוונת' };
+  webSandbox.call('getBootstrap', [], function () { throw new Error('onOk must not run on failure'); }, null, null);
+  await flush();
+  const toasted = webEls.toastWrap && webEls.toastWrap._children.some(
+    c => c.textContent === 'שגיאת בדיקה מכוונת');
+  ok('{ok:false} surfaces as an error toast carrying the server message', toasted);
+})().then(() => {
+  console.log(`\n${pass} passed, ${fail} failed\n`);
+  process.exit(fail ? 1 : 0);
+});

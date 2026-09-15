@@ -112,19 +112,23 @@ async function handleApiCall(fnName, request, env) {
 async function parseAppsScriptResponse(res) {
   const text = await res.text();
 
+  // בודקים 401 לפני שמנסים בכלל לפענח JSON: Api.gs's doPost תמיד מחזיר
+  // HTTP 200, אז 401 הוא תמיד סימן ל"Only myself" — גם אם הגוף שלו במקרה
+  // כן מפוענח כ-JSON (למשל שגיאת Google גנרית), אסור להעביר אותו כמו שהוא.
+  if (res.status === 401 || looksLikeGoogleLoginPage(text)) {
+    return jsonResponse({
+      ok: false,
+      error: 'Apps Script חסם את הבקשה (HTTP ' + res.status + ', דף התחברות של Google או 401). ' +
+             'כנראה שהפריסה עדיין "Only myself" — היא חייבת להיות "Anyone" ' +
+             'כדי שה-Worker יוכל לקרוא ל-API (ורק אחרי שה-UI הישן כובה — ' +
+             'ראה README.md וdocs/ARCHITECTURE.md §4).'
+    }, 502);
+  }
+
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch (err) {
-    if (looksLikeGoogleLoginPage(text)) {
-      return jsonResponse({
-        ok: false,
-        error: 'Apps Script החזיר דף התחברות של Google במקום JSON. ' +
-               'כנראה שהפריסה עדיין "Only myself" — היא חייבת להיות "Anyone" ' +
-               'כדי שה-Worker יוכל לקרוא ל-API (ורק אחרי שה-UI הישן כובה — ' +
-               'ראה README.md וdocs/ARCHITECTURE.md §4).'
-      }, 502);
-    }
     return jsonResponse({
       ok: false,
       error: 'Apps Script החזיר תשובה שאינה JSON (HTTP ' + res.status + ').'
