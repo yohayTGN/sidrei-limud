@@ -7,10 +7,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#120E0C">
 
-<!-- Worker URL — configuration, not code. No secret lives here; the API
-     token is injected server-side by the Worker itself. Edit this per
-     deployment (see web/README.md). -->
-<meta name="api-base" content="https://sidrei-limud-api.YOUR-SUBDOMAIN.workers.dev">
+<!-- כתובת ה-API — תצורה, לא קוד. ריק בכוונה: web/functions/api/[[path]].js
+     מוגש מהפונקציה עצמה, מאותו origin בדיוק כמו הדף הזה (Pages Function,
+     לא Worker נפרד — ראה web/README.md), אז נתיב יחסי מספיק. שום סוד לא
+     יושב כאן; הטוקן מוזרק בשרת, בפונקציה. -->
+<meta name="api-base" content="">
 
 <!-- אייקון האפליקציה. מוגש כעמוד עצמאי (בלי iframe עוטף, בלי doGet) — לכן
      התגיות האלה מספיקות בעצמן. אין כאן setFaviconUrl או installIcon: זה

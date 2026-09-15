@@ -1,11 +1,37 @@
-# Worker proxy — setup and deploy
+# Worker proxy — superseded, kept for now
 
-This is step 2 of 3 of the migration described in
+**⚠️ This standalone Worker is superseded by
+[`web/functions/api/[[path]].js`](../web/functions/api/%5B%5Bpath%5D%5D.js),
+a Cloudflare Pages Function with identical logic, deployed alongside
+the static site in `web/` instead of as a separate Worker. That's the
+active code path now — see [web/README.md](../web/README.md).**
+
+The reason for the move: this Worker sent no CORS headers, so calling
+it from `web/index.html` only worked without a browser CORS error if
+the site and the Worker shared an origin — which required a custom
+domain plus a Worker Route, an extra manual step. A Pages Function is
+served from the exact same origin as the static site it ships with,
+on *any* Pages deployment (including the free `*.pages.dev` URL, no
+custom domain needed) — so the same proxy logic works with no CORS
+headers needed anywhere, by construction, not by configuration.
+
+This directory is kept in the repo, unmodified and still deployable,
+until the Pages Function deploy is confirmed working end to end — at
+which point it gets deleted along with this file. Don't build on top
+of this Worker in the meantime; make any further changes to the Pages
+Function version instead, which is what `tests/pages_function_test.js`
+now covers (this Worker's own dedicated test file was renamed and
+retargeted along with the move — there's no separate `worker_test.js`
+anymore).
+
+---
+
+This was step 2 of 3 of the migration described in
 [docs/DECISIONS.md](../docs/DECISIONS.md) #15. It's a small Cloudflare
 Worker that sits between the eventual static site and the Apps Script
 API (`apps-script/Api.gs`). Nothing in `apps-script/` or `Index.html`
 changes because of this — the existing app keeps working exactly as it
-does today, untouched, for the whole rest of this step.
+does today, untouched.
 
 **⚠️ Before you touch the deployment's execute-as setting, read this
 first:** the Apps Script deployment must stay **"Execute as: Me / Only

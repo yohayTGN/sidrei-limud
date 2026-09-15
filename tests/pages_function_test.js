@@ -1,8 +1,11 @@
-/* Node harness for worker/src/index.js. That file is an ES module (Cloudflare
-   Workers require the "modules" format); this test file is CommonJS like
-   every other suite, so it loads the worker via dynamic import() inside an
-   async IIFE instead of eval-ing source text the way the apps-script suites
-   do. No network: fetch and the Cache API are both stubbed in-memory. */
+/* Node harness for web/functions/api/[[path]].js, the Cloudflare Pages
+   Function that replaced the standalone worker/ (see worker/README.md —
+   kept in the repo for now, marked superseded, not yet deleted). That file
+   is an ES module (Cloudflare Pages Functions require the "modules"
+   format); this test file is CommonJS like every other suite, so it loads
+   it via dynamic import() inside an async IIFE instead of eval-ing source
+   text the way the apps-script suites do. No network: fetch and the Cache
+   API are both stubbed in-memory. */
 
 let pass = 0, fail = 0;
 function eq(label, actual, expected) {
@@ -56,7 +59,7 @@ function redirectRes(location, status) {
 }
 
 (async function main() {
-  const worker = (await import('../worker/src/index.js')).default;
+  const { onRequest } = await import('../web/functions/api/[[path]].js');
 
   function post(path, bodyArray) {
     FETCH_CALLS = [];
@@ -64,19 +67,20 @@ function redirectRes(location, status) {
       method: 'POST',
       body: JSON.stringify(bodyArray)
     });
-    return worker.fetch(req, ENV, makeCtx());
+    const ctx = makeCtx();
+    return onRequest({ request: req, env: ENV, waitUntil: ctx.waitUntil });
   }
   function get(path) {
     const req = new Request('https://example.com' + path, { method: 'GET' });
     const ctx = makeCtx();
-    return { res: worker.fetch(req, ENV, ctx), ctx };
+    return { res: onRequest({ request: req, env: ENV, waitUntil: ctx.waitUntil }), ctx };
   }
 
   console.log('\n--- token is injected server-side, never present in what the client sent ---');
   FETCH_HANDLER = () => jsonRes({ ok: true, data: 'hi' });
   let res = await post('/api/getCatalog', []);
   let body = await res.json();
-  eq('worker forwards ok:true through unchanged', body, { ok: true, data: 'hi' });
+  eq('function forwards ok:true through unchanged', body, { ok: true, data: 'hi' });
   eq('exactly one outgoing call', FETCH_CALLS.length, 1);
   eq('outgoing call goes to SCRIPT_URL', FETCH_CALLS[0].url, ENV.SCRIPT_URL);
   eq('outgoing call is POST', FETCH_CALLS[0].options.method, 'POST');

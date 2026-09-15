@@ -1,0 +1,6 @@
+{
+  "name": "sidrei-limud-web",
+  "private": true,
+  "type": "module",
+  "description": "Static site + Pages Functions (web/functions/api) — the migration's step 3, DECISIONS.md #15. No build step: wrangler pages deploy uploads this directory as-is."
+}
