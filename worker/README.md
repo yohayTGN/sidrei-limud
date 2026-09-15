@@ -17,6 +17,113 @@ to open the deployment to "Anyone" yet. That's step 3, not this one.
 
 This guide assumes you've never used Cloudflare before.
 
+## Quick checklist: test the pipeline without exposing the app
+
+This is the short version — enough to prove the Worker can reach Apps
+Script, without changing anything the rest of the app depends on.
+
+> **🛑 Do NOT switch the Apps Script deployment to "Anyone" for any of
+> this.** Leave it on **"Execute as: Me / Only myself"** for every step
+> below — that setting is not part of what this checklist tests.
+> "Anyone" is the *last* step of the whole migration, and only after
+> `disableLegacyUi()` has been run (see `README.md` and
+> `docs/ARCHITECTURE.md` §4). Until then, **every call below is
+> expected to fail with the Google-login-page error** —
+> `{"ok":false,"error":"...Only myself..."}`. That is the correct,
+> expected result at this stage. It is not a bug, and it is not a sign
+> anything below is broken — it's Apps Script correctly refusing an
+> unauthenticated caller, which is exactly what "Only myself" is
+> supposed to do.
+
+1. Install and log in to Wrangler:
+
+   ```bash
+   npm install -g wrangler
+   wrangler login
+   ```
+
+2. From `worker/`, set both secrets (see "Get the two values you'll
+   need" below for what goes in each):
+
+   ```bash
+   wrangler secret put SCRIPT_URL
+   wrangler secret put API_TOKEN
+   ```
+
+3. Deploy:
+
+   ```bash
+   wrangler deploy
+   ```
+
+4. Test one harmless, read-only call — `getCatalog` reads nothing from
+   the spreadsheet and changes nothing:
+
+   ```bash
+   curl -sS -X POST https://<your-worker>.workers.dev/api/getCatalog \
+     -H 'Content-Type: application/json' \
+     -d '[]'
+   ```
+
+   What each outcome means:
+
+   | Response | Meaning |
+   |---|---|
+   | `{"ok":true,"data":[...]}` (an array of catalog categories) | Everything works end to end, right now, while still "Only myself". This can only happen if the deployment is already "Anyone" — if you haven't changed it, you should not be seeing this yet. |
+   | `{"ok":false,"error":"...Only myself..."}` (mentions a Google sign-in page) | **Expected right now.** The Worker reached Apps Script, but Apps Script correctly refused it because the deployment is still "Only myself". This confirms the Worker and both secrets are wired up correctly — it just can't authenticate yet, by design. |
+   | `{"ok":false,"error":"ה-Worker לא הוגדר..."}` (Worker not configured) | One or both secrets aren't set on the Worker — redo step 2, then step 3 again. |
+   | `{"ok":false,"error":"...Apps Script החזיר תשובה שאינה JSON..."}` (not specifically a login page) | Apps Script responded with something unexpected that also isn't JSON. See "Unverified: the redirect behavior" below — this is the first thing to check. |
+   | `{"ok":false,"error":"...חרגה מהזמן המוקצב..."}` (timeout) | No response from Apps Script within 25s — check `SCRIPT_URL` is the right `/exec` URL. |
+   | curl itself fails (connection error, 404 from `*.workers.dev`) | The Worker isn't deployed, or the URL is wrong — recheck step 3's output. |
+
+## ⚠️ Unverified: the POST-redirect behavior against the real Apps Script
+
+`worker/src/index.js` follows Apps Script's redirect (to
+`script.googleusercontent.com`) manually rather than via
+`redirect: 'follow'`, specifically so the POST method and body survive
+the hop — see the comment at the top of that file for the reasoning.
+**That reasoning has not been confirmed against a real, live Apps
+Script deployment yet** — only against `tests/worker_test.js`'s stubbed
+`fetch`, which returns exactly the redirect shape the code expects it
+to. A real `/exec` endpoint could behave differently in some way the
+stub doesn't capture.
+
+If the first live call comes back as `{"ok":false,"error":"...Apps
+Script החזיר תשובה שאינה JSON..."}` (and it isn't the login-page
+message above), the redirect handling is the first thing to check —
+specifically, whether Apps Script's 302 actually needs POST+body
+preserved, or whether it works fine as GET. To compare directly against
+Apps Script (bypassing the Worker), with `SCRIPT_URL` and `API_TOKEN`
+set as shell variables:
+
+```bash
+# See the raw redirect without following it — confirms the status code
+# and Location header Apps Script actually sends for a POST:
+curl -sS -i -X POST "$SCRIPT_URL" \
+  -H 'Content-Type: text/plain' \
+  -d "{\"token\":\"$API_TOKEN\",\"fn\":\"getCatalog\",\"args\":[]}"
+
+# curl's default -L converts POST to GET on a 301/302 (same risk the
+# Worker's manual redirect is meant to avoid) — this is "following with GET":
+curl -sS -L -X POST "$SCRIPT_URL" \
+  -H 'Content-Type: text/plain' \
+  -d "{\"token\":\"$API_TOKEN\",\"fn\":\"getCatalog\",\"args\":[]}"
+
+# --post302 forces curl to preserve POST + body across the redirect —
+# this is "replaying the POST", matching what the Worker's manual
+# redirect logic is supposed to do:
+curl -sS -L --post302 -X POST "$SCRIPT_URL" \
+  -H 'Content-Type: text/plain' \
+  -d "{\"token\":\"$API_TOKEN\",\"fn\":\"getCatalog\",\"args\":[]}"
+```
+
+If the `--post302` version returns real JSON and the plain `-L` version
+doesn't, that confirms Apps Script does need the method and body
+preserved — i.e. the Worker's manual-redirect approach is necessary and
+correct. If both return the same thing, the redirect may not be the
+issue and the non-JSON response has some other cause worth chasing
+down before assuming the redirect logic is at fault.
+
 ## 1. Create a Cloudflare account
 
 If you don't have one: [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up).
